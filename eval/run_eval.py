@@ -25,6 +25,7 @@ from pauta.config import get_settings
 from pauta.graph.builder import build_graph
 from pauta.graph.state import new_state
 from pauta.observability import setup_logging
+from pauta.tools.calculator import get_calculator_tool
 from pauta.tools.web_search import get_web_search_tool
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -83,11 +84,13 @@ def select_tasks(
 
 async def run_task(task: dict[str, Any], *, index: int) -> TaskResult:
     settings = get_settings()
-    tools = []
-    if settings.TAVILY_API_KEY:
-        tools.append(get_web_search_tool())
+    research_tools = [get_web_search_tool()] if settings.TAVILY_API_KEY else []
 
-    graph = build_graph(tools=tools, settings=settings)
+    graph = build_graph(
+        research_tools=research_tools,
+        analyst_tools=[get_calculator_tool()],
+        settings=settings,
+    )
     run_id = f"eval-{task['id']}"
     config: RunnableConfig = {"configurable": {"thread_id": f"{run_id}-{index}"}}
     started = time.perf_counter()

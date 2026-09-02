@@ -1,4 +1,4 @@
-"""Research: reúne material com fonte declarada. Afirmação sem fonte não vira Finding."""
+"""Analyst: processa e calcula sobre o material reunido. Conta vai na calculadora."""
 
 from collections.abc import Sequence
 from typing import Any
@@ -13,24 +13,45 @@ from ..graph.budget import would_exhaust
 from ..graph.state import AgentState, Finding, GraphNode
 from ..observability import emit, node_span
 
-RESEARCH_PROMPT = """Você é o pesquisador de uma equipe de análise. Reúna o material
-que responde à tarefa, usando as ferramentas disponíveis.
+ANALYST_PROMPT = """Você é o analista de uma equipe de análise. Processe o material já
+reunido: calcule, compare, converta unidade, cheque consistência.
 
 REGRAS:
-1. Toda afirmação vem com a fonte de onde saiu: url ou caminho de arquivo.
-2. O que você não encontrou, você diz que não encontrou. Não preencha lacuna com
-   suposição.
-3. Não redija o relatório. Só reúna o material."""
+1. Toda conta passa pela calculadora. Não calcule de cabeça.
+2. Cada resultado seu vira uma descoberta cuja fonte é "cálculo" seguido da conta
+   que você usou, para alguém poder conferir.
+3. Se o dado necessário para a conta não está no material, diga o que falta em vez
+   de arbitrar um valor.
+4. Não redija o relatório."""
 
-EXTRACTION_PROMPT = """Liste as descobertas do material acima, uma por item, cada uma
-com a fonte exata. Se nada foi encontrado, devolva a lista vazia."""
+EXTRACTION_PROMPT = """Liste o que você apurou, um item por resultado, com a conta na
+fonte. Se não deu para calcular nada, devolva a lista vazia."""
 
 
-class ResearchOutput(BaseModel):
-    """Saída estruturada do pesquisador."""
+class AnalystOutput(BaseModel):
+    """Saída estruturada do analista."""
 
     findings: list[Finding] = Field(default_factory=list)
-    notes: str = Field(default="", description="o que não foi encontrado, se for o caso")
+    notes: str = Field(default="", description="o dado que faltou, se for o caso")
+
+
+def render_material(state: AgentState) -> str:
+    findings = state.get("findings", [])
+    if findings:
+        lines = [f"- [{f.agent}] {f.content} (fonte: {f.source})" for f in findings]
+    else:
+        lines = ["- nenhuma descoberta foi registrada"]
+    gaps = [gap for critique in state.get("critiques", []) for gap in critique.gaps]
+    return "\n".join(
+        [
+            f"Tarefa: {state['task']}",
+            "",
+            "Material reunido:",
+            *lines,
+            "",
+            f"Lacunas apontadas pelo crítico: {gaps if gaps else 'nenhuma'}",
+        ]
+    )
 
 
 def _tokens_from(message: Any) -> int:
@@ -46,11 +67,10 @@ async def _run_tools(
     *,
     run_id: str,
 ) -> list[ToolMessage]:
-    """Executa as tool calls pedidas. Falha de tool vira ToolMessage de erro, não exceção."""
     by_name = {tool.name: tool for tool in tools}
     results: list[ToolMessage] = []
     for call in message.tool_calls:
-        emit("tool_call", node="research", run_id=run_id, tool=call["name"], args=call["args"])
+        emit("tool_call", node="analyst", run_id=run_id, tool=call["name"], args=call["args"])
         tool = by_name.get(call["name"])
         if tool is None:
             results.append(
@@ -66,7 +86,7 @@ async def _run_tools(
         except Exception as exc:
             emit(
                 "error",
-                node="research",
+                node="analyst",
                 run_id=run_id,
                 tool=call["name"],
                 error_type=type(exc).__name__,
@@ -82,27 +102,23 @@ async def _run_tools(
     return results
 
 
-def make_research_node(
+def make_analyst_node(
     model: BaseChatModel,
     tools: Sequence[BaseTool],
     settings: Settings | None = None,
 ) -> GraphNode:
-    """Constrói o nó de pesquisa sobre um modelo e um conjunto de tools já prontos."""
+    """Constrói o nó analista sobre um modelo e um conjunto de tools já prontos."""
     resolved = settings or get_settings()
     with_tools = model.bind_tools(list(tools)) if tools else model
-    extractor = model.with_structured_output(ResearchOutput, include_raw=True)
+    extractor = model.with_structured_output(AnalystOutput, include_raw=True)
 
-    async def research(state: AgentState) -> dict[str, Any]:
+    async def analyst(state: AgentState) -> dict[str, Any]:
         run_id = state.get("run_id", "desconhecida")
         iteration = state.get("iteration", 0)
-        with node_span("research", run_id=run_id, thread_id=run_id, iteration=iteration) as span:
-            gaps = [gap for critique in state.get("critiques", []) for gap in critique.gaps]
+        with node_span("analyst", run_id=run_id, thread_id=run_id, iteration=iteration) as span:
             history: list[BaseMessage] = [
-                SystemMessage(RESEARCH_PROMPT),
-                HumanMessage(
-                    f"Tarefa: {state['task']}\n"
-                    f"Lacunas apontadas pelo crítico: {gaps if gaps else 'nenhuma'}"
-                ),
+                SystemMessage(ANALYST_PROMPT),
+                HumanMessage(render_material(state)),
             ]
             tokens = 0
 
@@ -115,7 +131,7 @@ def make_research_node(
                 if would_exhaust(state, resolved, tokens):
                     emit(
                         "error",
-                        node="research",
+                        node="analyst",
                         run_id=run_id,
                         error="orçamento da run esgotado no meio do nó; parando com o parcial",
                         tokens_used=tokens,
@@ -132,24 +148,24 @@ def make_research_node(
                 parsed = result
 
             findings: list[Finding] = []
-            if isinstance(parsed, ResearchOutput):
+            if isinstance(parsed, AnalystOutput):
                 findings = [
-                    Finding(content=f.content, source=f.source, agent="research")
+                    Finding(content=f.content, source=f.source, agent="analyst")
                     for f in parsed.findings
                     if f.content.strip() and f.source.strip()
                 ]
             else:
                 emit(
                     "error",
-                    node="research",
+                    node="analyst",
                     run_id=run_id,
-                    error="extração estruturada falhou; nenhuma descoberta registrada",
+                    error="extração estruturada falhou; nenhum resultado registrado",
                 )
 
             for finding in findings:
                 emit(
                     "finding",
-                    node="research",
+                    node="analyst",
                     run_id=run_id,
                     source=finding.source,
                     content=finding.content,
@@ -159,4 +175,4 @@ def make_research_node(
             span.extra["findings"] = len(findings)
             return {"findings": findings, "tokens_used": tokens}
 
-    return research
+    return analyst

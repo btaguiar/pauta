@@ -14,7 +14,7 @@ from pauta.agents.supervisor import Router
 from pauta.config import Settings, get_settings
 from pauta.graph.builder import build_graph
 from pauta.graph.state import Finding, new_state
-from tests.fakes import FakeChatModel
+from tests.fakes import FakeChatModel, fake_graph_models
 
 
 @tool
@@ -41,10 +41,12 @@ async def test_slow_tool_trips_the_node_timeout() -> None:
         ]
     )
     graph = build_graph(
-        supervisor_model=FakeChatModel(responses=[Router(next="research", rationale="buscar")]),
-        research_model=research,
-        writer_model=FakeChatModel(responses=["nunca chega aqui"]),
-        tools=[busca_lenta],
+        **fake_graph_models(
+            supervisor_model=FakeChatModel(responses=[Router(next="research", rationale="buscar")]),
+            research_model=research,
+            writer_model=FakeChatModel(responses=["nunca chega aqui"]),
+        ),
+        research_tools=[busca_lenta],
         settings=settings,
         checkpointer=InMemorySaver(),
     )
@@ -57,9 +59,11 @@ async def test_the_timeout_comes_from_settings() -> None:
     """O número vem de NODE_TIMEOUT_S, não de constante solta no builder."""
     settings = impatient_settings(NODE_TIMEOUT_RESEARCH_S=0.25)
     graph = build_graph(
-        supervisor_model=FakeChatModel(responses=[]),
-        research_model=FakeChatModel(responses=[]),
-        writer_model=FakeChatModel(responses=[]),
+        **fake_graph_models(
+            supervisor_model=FakeChatModel(responses=[]),
+            research_model=FakeChatModel(responses=[]),
+            writer_model=FakeChatModel(responses=[]),
+        ),
         settings=settings,
     )
     policy = graph.nodes["research"].timeout
@@ -70,22 +74,24 @@ async def test_the_timeout_comes_from_settings() -> None:
 async def test_tools_are_optional() -> None:
     tools: list[BaseTool] = []
     graph = build_graph(
-        supervisor_model=FakeChatModel(
-            responses=[
-                Router(next="research", rationale="reunir material"),
-                Router(next="writer", rationale="material reunido"),
-            ]
+        **fake_graph_models(
+            supervisor_model=FakeChatModel(
+                responses=[
+                    Router(next="research", rationale="reunir material"),
+                    Router(next="writer", rationale="material reunido"),
+                ]
+            ),
+            research_model=FakeChatModel(
+                responses=[
+                    "sem tool",
+                    ResearchOutput(
+                        findings=[Finding(content="a", source="https://a", agent="research")]
+                    ),
+                ]
+            ),
+            writer_model=FakeChatModel(responses=["Briefing."]),
         ),
-        research_model=FakeChatModel(
-            responses=[
-                "sem tool",
-                ResearchOutput(
-                    findings=[Finding(content="a", source="https://a", agent="research")]
-                ),
-            ]
-        ),
-        writer_model=FakeChatModel(responses=["Briefing."]),
-        tools=tools,
+        research_tools=tools,
         settings=get_settings(),
         checkpointer=InMemorySaver(),
     )

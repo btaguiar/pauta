@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     NODE_TIMEOUT_SUPERVISOR_S: float = Field(default=20.0, gt=0)
     NODE_TIMEOUT_RESEARCH_S: float = Field(default=90.0, gt=0)
     NODE_TIMEOUT_WRITER_S: float = Field(default=45.0, gt=0)
+    NODE_TIMEOUT_CRITIC_S: float = Field(default=45.0, gt=0)
+    NODE_TIMEOUT_ANALYST_S: float = Field(default=90.0, gt=0)
     NODE_RETRIES: int = Field(default=2, ge=0)
     # Sem teto, um agente com tool entra em loop de chamadas sozinho.
     MAX_TOOL_ROUNDS: int = Field(default=3, gt=0)

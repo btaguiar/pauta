@@ -125,3 +125,20 @@ class FakeChatModel(BaseChatModel):
             return value
 
         return RunnableLambda(_invoke)
+
+
+def fake_graph_models(**overrides: Any) -> dict[str, Any]:
+    """Os cinco modelos do grafo, todos falsos.
+
+    Sem isto, um teste que só se importa com o supervisor faria o builder chamar
+    `get_model` para os outros quatro papéis e bater na falta de chave.
+    """
+    models: dict[str, Any] = {
+        "supervisor_model": FakeChatModel(responses=[]),
+        "research_model": FakeChatModel(responses=[]),
+        "analyst_model": FakeChatModel(responses=[]),
+        "critic_model": FakeChatModel(responses=[]),
+        "writer_model": FakeChatModel(responses=[]),
+    }
+    models.update(overrides)
+    return models

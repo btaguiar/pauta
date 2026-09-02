@@ -8,8 +8,8 @@ from pauta.agents.research import ResearchOutput
 from pauta.agents.supervisor import Router
 from pauta.config import Settings, get_settings
 from pauta.graph.builder import build_graph, is_retryable, retry_policy
-from pauta.graph.state import Finding, new_state
-from tests.fakes import FakeChatModel
+from pauta.graph.state import Critique, Finding, new_state
+from tests.fakes import FakeChatModel, fake_graph_models
 
 
 @pytest.fixture
@@ -67,7 +67,8 @@ async def test_graph_runs_task_to_report(settings: Settings) -> None:
     supervisor = FakeChatModel(
         responses=[
             Router(next="research", rationale="falta dado"),
-            Router(next="writer", rationale="material reunido"),
+            Router(next="critic", rationale="material reunido, falta validar"),
+            Router(next="writer", rationale="crítico aprovou"),
         ]
     )
     research = FakeChatModel(
@@ -83,10 +84,13 @@ async def test_graph_runs_task_to_report(settings: Settings) -> None:
     writer = FakeChatModel(responses=["Briefing: a API sai mais barata até 1M de tokens."])
 
     graph = build_graph(
-        supervisor_model=supervisor,
-        research_model=research,
-        writer_model=writer,
-        tools=[busca_fake],
+        **fake_graph_models(
+            supervisor_model=supervisor,
+            research_model=research,
+            critic_model=FakeChatModel(responses=[Critique(verdict="ok")]),
+            writer_model=writer,
+        ),
+        research_tools=[busca_fake],
         settings=settings,
         checkpointer=InMemorySaver(),
     )
@@ -95,7 +99,8 @@ async def test_graph_runs_task_to_report(settings: Settings) -> None:
 
     assert final["final_report"].startswith("Briefing")
     assert len(final["findings"]) == 1
-    assert final["iteration"] == 2
+    assert final["iteration"] == 3
+    assert final["critiques"][0].verdict == "ok"
     assert final["tokens_used"] > 0
 
 
@@ -117,9 +122,11 @@ async def test_findings_accumulate_across_cycles(settings: Settings) -> None:
     )
     writer = FakeChatModel(responses=["Briefing final."])
     graph = build_graph(
-        supervisor_model=supervisor,
-        research_model=research,
-        writer_model=writer,
+        **fake_graph_models(
+            supervisor_model=supervisor,
+            research_model=research,
+            writer_model=writer,
+        ),
         settings=settings,
         checkpointer=InMemorySaver(),
     )
@@ -147,9 +154,11 @@ async def test_broken_router_still_reaches_a_report(settings: Settings) -> None:
     )
     writer = FakeChatModel(responses=["Briefing com o que houve."])
     graph = build_graph(
-        supervisor_model=supervisor,
-        research_model=research,
-        writer_model=writer,
+        **fake_graph_models(
+            supervisor_model=supervisor,
+            research_model=research,
+            writer_model=writer,
+        ),
         settings=settings,
         checkpointer=InMemorySaver(),
     )
@@ -164,9 +173,11 @@ async def test_budget_overrun_goes_straight_to_the_writer(settings: Settings) ->
     research = FakeChatModel(responses=[])
     writer = FakeChatModel(responses=["Briefing com o orçamento estourado."])
     graph = build_graph(
-        supervisor_model=supervisor,
-        research_model=research,
-        writer_model=writer,
+        **fake_graph_models(
+            supervisor_model=supervisor,
+            research_model=research,
+            writer_model=writer,
+        ),
         settings=settings,
         checkpointer=InMemorySaver(),
     )
@@ -187,16 +198,18 @@ async def test_state_survives_by_thread_id(settings: Settings) -> None:
         ]
     )
     graph = build_graph(
-        supervisor_model=supervisor,
-        research_model=FakeChatModel(
-            responses=[
-                "achei",
-                ResearchOutput(
-                    findings=[Finding(content="a", source="https://a", agent="research")]
-                ),
-            ]
+        **fake_graph_models(
+            supervisor_model=supervisor,
+            research_model=FakeChatModel(
+                responses=[
+                    "achei",
+                    ResearchOutput(
+                        findings=[Finding(content="a", source="https://a", agent="research")]
+                    ),
+                ]
+            ),
+            writer_model=FakeChatModel(responses=["Briefing."]),
         ),
-        writer_model=FakeChatModel(responses=["Briefing."]),
         settings=settings,
         checkpointer=InMemorySaver(),
     )
@@ -211,10 +224,12 @@ def test_the_tools_reach_the_researcher(settings: Settings) -> None:
     research = FakeChatModel(responses=["sem tool", ResearchOutput(findings=[])])
     tools: list[BaseTool] = [busca_fake]
     build_graph(
-        supervisor_model=FakeChatModel(responses=[]),
-        research_model=research,
-        writer_model=FakeChatModel(responses=[]),
-        tools=tools,
+        **fake_graph_models(
+            supervisor_model=FakeChatModel(responses=[]),
+            research_model=research,
+            writer_model=FakeChatModel(responses=[]),
+        ),
+        research_tools=tools,
         settings=settings,
     )
     assert [t.name for t in research.bound_tools] == ["busca_fake"]
