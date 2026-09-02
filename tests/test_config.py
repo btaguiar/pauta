@@ -49,3 +49,28 @@ def test_hitl_mode_is_closed(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_database_url_matches_compose_default() -> None:
     """Se este valor mudar, o docker-compose.yml muda no mesmo commit."""
     assert get_settings().DATABASE_URL == "postgresql://pauta:pauta@localhost:5432/pauta"
+
+
+def test_blank_optional_values_mean_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """O .env.example deixa opcionais em branco; branco não pode quebrar o parse."""
+    monkeypatch.setenv("COST_PER_MTOK_USD", "")
+    monkeypatch.setenv("JUDGE_MODEL", "   ")
+    monkeypatch.setenv("TAVILY_API_KEY", "")
+    get_settings.cache_clear()
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.COST_PER_MTOK_USD is None
+    assert settings.JUDGE_MODEL is None
+    assert settings.TAVILY_API_KEY is None
+
+
+def test_a_filled_optional_still_parses(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("COST_PER_MTOK_USD", "1.75")
+    get_settings.cache_clear()
+    assert Settings(_env_file=None).COST_PER_MTOK_USD == 1.75  # type: ignore[call-arg]
+
+
+def test_the_shipped_env_example_parses() -> None:
+    """O espelho vazio precisa carregar quando os obrigatórios vêm do ambiente."""
+    settings = Settings(_env_file=".env.example")  # type: ignore[call-arg]
+    assert settings.COST_PER_MTOK_USD is None
+    assert settings.DATABASE_URL.startswith("postgresql://")

@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 HitlMode = Literal["auto", "interrupt"]
@@ -68,6 +68,25 @@ class Settings(BaseSettings):
     LANGSMITH_TRACING: bool = False
     LANGSMITH_API_KEY: str | None = None
     LANGSMITH_PROJECT: str = "pauta"
+
+    @field_validator(
+        "COST_PER_MTOK_USD",
+        "JUDGE_MODEL",
+        "OPENAI_API_KEY",
+        "TAVILY_API_KEY",
+        "LANGSMITH_API_KEY",
+        mode="before",
+    )
+    @classmethod
+    def _blank_is_absent(cls, value: object) -> object:
+        """Campo vazio no `.env` significa ausente, não string vazia.
+
+        O `.env.example` deixa os opcionais em branco de propósito, e um campo
+        numérico em branco quebraria o parse.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
 
 @lru_cache
