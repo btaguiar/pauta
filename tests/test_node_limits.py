@@ -13,7 +13,7 @@ from pauta.agents.research import ResearchOutput
 from pauta.agents.supervisor import Router
 from pauta.config import Settings, get_settings
 from pauta.graph.builder import build_graph
-from pauta.graph.state import new_state
+from pauta.graph.state import Finding, new_state
 from tests.fakes import FakeChatModel
 
 
@@ -25,7 +25,7 @@ async def busca_lenta(query: str) -> str:
 
 
 def impatient_settings(**overrides: object) -> Settings:
-    return get_settings().model_copy(update={"NODE_TIMEOUT_S": 0.05, **overrides})
+    return get_settings().model_copy(update={"NODE_TIMEOUT_RESEARCH_S": 0.05, **overrides})
 
 
 async def test_slow_tool_trips_the_node_timeout() -> None:
@@ -55,7 +55,7 @@ async def test_slow_tool_trips_the_node_timeout() -> None:
 
 async def test_the_timeout_comes_from_settings() -> None:
     """O número vem de NODE_TIMEOUT_S, não de constante solta no builder."""
-    settings = impatient_settings(NODE_TIMEOUT_S=0.25)
+    settings = impatient_settings(NODE_TIMEOUT_RESEARCH_S=0.25)
     graph = build_graph(
         supervisor_model=FakeChatModel(responses=[]),
         research_model=FakeChatModel(responses=[]),
@@ -70,8 +70,20 @@ async def test_the_timeout_comes_from_settings() -> None:
 async def test_tools_are_optional() -> None:
     tools: list[BaseTool] = []
     graph = build_graph(
-        supervisor_model=FakeChatModel(responses=[Router(next="writer", rationale="direto")]),
-        research_model=FakeChatModel(responses=[]),
+        supervisor_model=FakeChatModel(
+            responses=[
+                Router(next="research", rationale="reunir material"),
+                Router(next="writer", rationale="material reunido"),
+            ]
+        ),
+        research_model=FakeChatModel(
+            responses=[
+                "sem tool",
+                ResearchOutput(
+                    findings=[Finding(content="a", source="https://a", agent="research")]
+                ),
+            ]
+        ),
         writer_model=FakeChatModel(responses=["Briefing."]),
         tools=tools,
         settings=get_settings(),

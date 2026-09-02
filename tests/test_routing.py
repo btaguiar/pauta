@@ -2,7 +2,7 @@ import pytest
 
 from pauta.config import Settings, get_settings
 from pauta.graph.routing import enforce_rules, fallback_route, forced_route
-from pauta.graph.state import AgentState, Critique, Finding, new_state
+from pauta.graph.state import AgentState, Critique, Finding, NextStep, new_state
 
 
 @pytest.fixture
@@ -53,7 +53,24 @@ def test_no_limit_reached_leaves_the_decision_to_the_model(settings: Settings) -
 
 def test_writer_never_runs_before_the_critic(settings: Settings) -> None:
     """Regra 1 do prompt, aplicada em código e não na confiança."""
-    assert enforce_rules(state_with(), "writer", settings) == "critic"
+    state = state_with(findings=[Finding(content="a", source="s", agent="research")])
+    assert enforce_rules(state, "writer", settings) == "critic"
+
+
+def test_writer_does_not_write_about_nothing(settings: Settings) -> None:
+    """Sem nenhuma descoberta, o pedido de writer volta para research."""
+    assert enforce_rules(state_with(), "writer", settings) == "research"
+
+
+def test_empty_writer_rule_yields_to_the_hard_limits(settings: Settings) -> None:
+    """Orçamento estourado decide antes, e aí o writer redige com o que houver."""
+    state = state_with(tokens_used=settings.BUDGET_TOKENS_PER_RUN)
+    assert forced_route(state, settings) == "writer"
+
+
+def test_without_a_research_node_the_empty_writer_rule_is_off(settings: Settings) -> None:
+    available: frozenset[NextStep] = frozenset({"writer", "END"})
+    assert enforce_rules(state_with(), "writer", settings, available) == "writer"
 
 
 def test_critic_is_not_called_again_after_the_loop_limit(settings: Settings) -> None:

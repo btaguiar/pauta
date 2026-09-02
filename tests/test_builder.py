@@ -180,10 +180,22 @@ async def test_budget_overrun_goes_straight_to_the_writer(settings: Settings) ->
 
 async def test_state_survives_by_thread_id(settings: Settings) -> None:
     """O checkpointer guarda o estado por thread, e ele volta depois da execução."""
-    supervisor = FakeChatModel(responses=[Router(next="writer", rationale="direto")])
+    supervisor = FakeChatModel(
+        responses=[
+            Router(next="research", rationale="reunir"),
+            Router(next="writer", rationale="material reunido"),
+        ]
+    )
     graph = build_graph(
         supervisor_model=supervisor,
-        research_model=FakeChatModel(responses=[]),
+        research_model=FakeChatModel(
+            responses=[
+                "achei",
+                ResearchOutput(
+                    findings=[Finding(content="a", source="https://a", agent="research")]
+                ),
+            ]
+        ),
         writer_model=FakeChatModel(responses=["Briefing."]),
         settings=settings,
         checkpointer=InMemorySaver(),

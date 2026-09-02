@@ -75,9 +75,16 @@ def build_graph(
 
     policy = retry_policy(resolved)
     graph: StateGraph[AgentState, Any, Any, Any] = StateGraph(AgentState)
-    graph.add_node("supervisor", supervisor, timeout=resolved.NODE_TIMEOUT_S, retry_policy=policy)
-    graph.add_node("research", research, timeout=resolved.NODE_TIMEOUT_S, retry_policy=policy)
-    graph.add_node("writer", writer, timeout=resolved.NODE_TIMEOUT_S, retry_policy=policy)
+    graph.add_node(
+        "supervisor",
+        supervisor,
+        timeout=resolved.NODE_TIMEOUT_SUPERVISOR_S,
+        retry_policy=policy,
+    )
+    graph.add_node(
+        "research", research, timeout=resolved.NODE_TIMEOUT_RESEARCH_S, retry_policy=policy
+    )
+    graph.add_node("writer", writer, timeout=resolved.NODE_TIMEOUT_WRITER_S, retry_policy=policy)
 
     graph.add_edge(START, "supervisor")
     graph.add_conditional_edges(

@@ -55,9 +55,15 @@ def enforce_rules(
     Regra 1: nunca writer sem o critic ter rodado.
     Regra 2: o critic recusou até o limite, writer com as ressalvas.
     Regra 3: rota para nó que não existe no grafo montado vira writer.
+    Regra 4: writer sem nenhuma descoberta volta para research. Redigir sobre
+    nada gasta uma run inteira para produzir um texto que só informa a própria
+    falta de dados. Quem passa por cima disto é o `forced_route`, que já
+    decidiu antes quando o orçamento ou as iterações acabaram.
     """
     if proposed not in available:
         proposed = "writer"
+    if proposed == "writer" and not state.get("findings") and "research" in available:
+        return "research"
     if "critic" in available and proposed == "writer" and not state.get("critiques"):
         return "critic"
     if proposed == "critic" and critic_loops_exhausted(state, settings):

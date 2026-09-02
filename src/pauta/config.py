@@ -48,7 +48,12 @@ class Settings(BaseSettings):
     MAX_SUPERVISOR_STEPS: int = Field(default=8, gt=0)
     MAX_CRITIC_LOOPS: int = Field(default=2, ge=0)
     BUDGET_TOKENS_PER_RUN: int = Field(default=60_000, gt=0)
-    NODE_TIMEOUT_S: float = Field(default=20.0, gt=0)
+    # Um teto por papel, porque o trabalho de cada nó tem duração diferente. O
+    # research faz até MAX_TOOL_ROUNDS buscas e leva ~29s medidos; o supervisor
+    # é uma chamada curta e leva ~1,6s. Um número único serviria mal aos dois.
+    NODE_TIMEOUT_SUPERVISOR_S: float = Field(default=20.0, gt=0)
+    NODE_TIMEOUT_RESEARCH_S: float = Field(default=90.0, gt=0)
+    NODE_TIMEOUT_WRITER_S: float = Field(default=45.0, gt=0)
     NODE_RETRIES: int = Field(default=2, ge=0)
     # Sem teto, um agente com tool entra em loop de chamadas sozinho.
     MAX_TOOL_ROUNDS: int = Field(default=3, gt=0)
