@@ -86,17 +86,30 @@ class FakeChatModel(BaseChatModel):
     def with_structured_output(
         self,
         schema: Any = None,
+        *,
+        include_raw: bool = False,
         **kwargs: Any,
     ) -> Runnable[Any, Any]:
-        """Devolve o próximo item da fila já tipado, sem passar por parser real."""
+        """Devolve o próximo item da fila já tipado, sem passar por parser real.
+
+        Com `include_raw=True` devolve o mesmo dicionário que o LangChain devolve,
+        com a mensagem bruta ao lado, que é de onde sai a contagem de tokens.
+        """
 
         def _invoke(payload: Any) -> Any:
             messages = payload if isinstance(payload, list) else [payload]
             value = self._next([m for m in messages if isinstance(m, BaseMessage)])
-            if isinstance(value, BaseModel):
-                return value
-            raise TypeError(
-                f"with_structured_output esperava BaseModel na fila, veio {type(value).__name__}"
-            )
+            if not isinstance(value, BaseModel):
+                raise TypeError(
+                    "with_structured_output esperava BaseModel na fila, "
+                    f"veio {type(value).__name__}"
+                )
+            if include_raw:
+                return {
+                    "raw": self._message_from(value),
+                    "parsed": value,
+                    "parsing_error": None,
+                }
+            return value
 
         return RunnableLambda(_invoke)
