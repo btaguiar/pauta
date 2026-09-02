@@ -21,6 +21,9 @@ dist/
 .coverage
 htmlcov/
 
+# Resultados de eval rodado localmente. Só o do nightly é versionado.
+eval/results/
+
 # Dados locais do retriever
 .chroma/
 chroma_db/
