@@ -3,8 +3,8 @@
 Um emissor, dois destinos: o mesmo evento vira linha de log agora e frame SSE
 quando a API existir (semana 3). Nada de `print` em lugar nenhum.
 
-Os tipos de evento são os da secção 8.6 do dossiê, mais `node_end`, que carrega
-o `latency_ms` de cada nó e não tem equivalente naquela lista.
+Os tipos de evento são os do contrato da API, mais `node_end`, que carrega o
+`latency_ms` de cada nó.
 """
 
 import json

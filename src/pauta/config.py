@@ -40,7 +40,8 @@ class Settings(BaseSettings):
     # Banco. Valor de desenvolvimento idêntico ao do docker-compose.yml.
     DATABASE_URL: str = "postgresql://pauta:pauta@localhost:5432/pauta"
 
-    # Comportamento do grafo (secção 8.3 do dossiê, calibrar pelo eval).
+    # Comportamento do grafo. Estes números são ponto de partida, não meta:
+    # quem os calibra é o eval.
     HITL_MODE: HitlMode = "auto"
     MAX_SUPERVISOR_STEPS: int = Field(default=8, gt=0)
     MAX_CRITIC_LOOPS: int = Field(default=2, ge=0)

@@ -14,5 +14,5 @@ Em construção. Semana 1 do roadmap: grafo mínimo de ponta a ponta.
 Nada aqui foi medido ainda. Quando houver número, ele vem de execução real e
 o `EVALUATION.md` diz como foi medido.
 
-O *o quê* e o *por quê* estão em [DOSSIE.md](DOSSIE.md). As decisões de
-arquitetura estão em [ARCHITECTURE.md](ARCHITECTURE.md).
+As decisões de arquitetura e as sete ADRs estão em
+[ARCHITECTURE.md](ARCHITECTURE.md).
