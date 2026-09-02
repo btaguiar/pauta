@@ -1,0 +1,60 @@
+[project]
+name = "pauta"
+version = "0.1.0"
+description = "Multi-agent analytical briefings with LangGraph: dynamic supervision, a bounded critic loop, human-in-the-loop interrupts and a token budget."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=1.2.11,<1.3",
+    "langchain>=1.3.18,<1.4",
+    "langchain-core>=1.6.1,<1.7",
+    "langchain-openai>=1.6.0,<1.7",
+    "langchain-tavily>=0.2.18,<0.3",
+    "langchain-postgres>=0.0.17,<0.1",
+    "psycopg[binary,pool]>=3.3.5,<3.4",
+    "pydantic>=2.12,<3",
+    "pydantic-settings>=2.15,<3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1,<10",
+    "pytest-asyncio>=1.4.0,<2",
+    "ruff>=0.16.5,<0.17",
+    "mypy>=2.3.1,<3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pauta"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests", "eval"]
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ANN", "T20", "RUF"]
+ignore = ["ANN401"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["ANN201", "ANN001"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["langchain_postgres.*", "langchain_tavily.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q"
