@@ -55,7 +55,7 @@ def tool_call_message(name: str) -> AIMessage:
     )
 
 
-def test_collects_findings_with_sources(settings: Settings) -> None:
+async def test_collects_findings_with_sources(settings: Settings) -> None:
     model = FakeChatModel(
         responses=[
             "sem tool, já sei responder",
@@ -67,13 +67,13 @@ def test_collects_findings_with_sources(settings: Settings) -> None:
         ]
     )
     node = make_research_node(model, [], settings)
-    result = node(state_with())
+    result = await node(state_with())
     assert len(result["findings"]) == 1
     assert result["findings"][0].source == "https://a"
     assert result["findings"][0].agent == "research"
 
 
-def test_runs_the_tool_the_model_asked_for(settings: Settings, captured: io.StringIO) -> None:
+async def test_runs_the_tool_the_model_asked_for(settings: Settings, captured: io.StringIO) -> None:
     model = FakeChatModel(
         responses=[
             tool_call_message("busca_fake"),
@@ -85,12 +85,12 @@ def test_runs_the_tool_the_model_asked_for(settings: Settings, captured: io.Stri
     )
     tools: list[BaseTool] = [busca_fake]
     node = make_research_node(model, tools, settings)
-    node(state_with())
+    await node(state_with())
     calls = [event for event in events(captured) if event["event"] == "tool_call"]
     assert calls[0]["tool"] == "busca_fake"
 
 
-def test_tool_failure_becomes_an_event_not_a_crash(
+async def test_tool_failure_becomes_an_event_not_a_crash(
     settings: Settings, captured: io.StringIO
 ) -> None:
     model = FakeChatModel(
@@ -102,24 +102,24 @@ def test_tool_failure_becomes_an_event_not_a_crash(
     )
     tools: list[BaseTool] = [busca_quebrada]
     node = make_research_node(model, tools, settings)
-    result = node(state_with())
+    result = await node(state_with())
     assert result["findings"] == []
     errors = [event for event in events(captured) if event["event"] == "error"]
     assert any(event.get("tool") == "busca_quebrada" for event in errors)
 
 
-def test_tool_rounds_are_capped(settings: Settings) -> None:
+async def test_tool_rounds_are_capped(settings: Settings) -> None:
     """Sem teto, o agente pede tool para sempre."""
     responses: list[object] = [tool_call_message("busca_fake") for _ in range(10)]
     responses.append(ResearchOutput(findings=[]))
     model = FakeChatModel(responses=responses)
     tools: list[BaseTool] = [busca_fake]
     node = make_research_node(model, tools, settings)
-    node(state_with())
+    await node(state_with())
     assert model.call_count == settings.MAX_TOOL_ROUNDS + 1
 
 
-def test_findings_without_source_are_dropped(settings: Settings) -> None:
+async def test_findings_without_source_are_dropped(settings: Settings) -> None:
     """Afirmação sem fonte não vira Finding."""
     model = FakeChatModel(
         responses=[
@@ -133,23 +133,23 @@ def test_findings_without_source_are_dropped(settings: Settings) -> None:
         ]
     )
     node = make_research_node(model, [], settings)
-    result = node(state_with())
+    result = await node(state_with())
     assert [f.content for f in result["findings"]] == ["com fonte"]
 
 
-def test_counts_tokens_across_every_call(settings: Settings) -> None:
+async def test_counts_tokens_across_every_call(settings: Settings) -> None:
     model = FakeChatModel(
         responses=["pronto", ResearchOutput(findings=[])],
         input_tokens=40,
         output_tokens=10,
     )
     node = make_research_node(model, [], settings)
-    assert node(state_with())["tokens_used"] == 100
+    assert (await node(state_with()))["tokens_used"] == 100
 
 
-def test_the_critic_gaps_reach_the_researcher(settings: Settings) -> None:
+async def test_the_critic_gaps_reach_the_researcher(settings: Settings) -> None:
     model = FakeChatModel(responses=["pronto", ResearchOutput(findings=[])])
     node = make_research_node(model, [], settings)
-    node(state_with(critiques=[Critique(verdict="refinar", gaps=["falta o preço da GPU"])]))
+    await node(state_with(critiques=[Critique(verdict="refinar", gaps=["falta o preço da GPU"])]))
     first_prompt = str(model.calls[0][1].content)
     assert "falta o preço da GPU" in first_prompt

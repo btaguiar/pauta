@@ -130,6 +130,7 @@ novo antes de confiar nesta tabela.
 | API | Assinatura real | Uso aqui |
 |---|---|---|
 | `StateGraph.add_node` | `add_node(node, action=None, *, retry_policy=None, timeout=None, error_handler=None, defer=False, ...)` | timeout e retry por nó, sem wrapper manual |
+| `timeout` por nó | só aceito em nó `async`; nó síncrono é recusado no `compile()` | por isso os cinco nós são `async def` |
 | `RetryPolicy` | `NamedTuple(initial_interval, backoff_factor, max_interval, max_attempts, jitter, retry_on)` | `max_attempts` e um `retry_on` próprio |
 | `RunControl` | `langgraph.runtime.RunControl`, com `request_drain(reason)` e `drain_requested` | drain cooperativo, teste de durabilidade da semana 2 |
 | `CompiledStateGraph.stream` | aceita `control=`, `durability=` e `version="v1" \| "v2"` | stream tipado que vira SSE |

@@ -1,13 +1,12 @@
 """Writer: redige o briefing. Relatório honesto sobre o que não validou."""
 
-from collections.abc import Callable
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from ..config import Settings, get_settings
-from ..graph.state import AgentState
+from ..graph.state import AgentState, GraphNode
 from ..observability import emit, node_span
 
 WRITER_PROMPT = """Você é o redator de uma equipe de análise. Escreva um briefing curto
@@ -60,18 +59,20 @@ def _tokens_from(message: Any) -> int:
 def make_writer_node(
     model: BaseChatModel,
     settings: Settings | None = None,
-) -> Callable[[AgentState], dict[str, Any]]:
+) -> GraphNode:
     """Constrói o nó de redação sobre um modelo já instanciado."""
     resolved = settings or get_settings()
 
-    def writer(state: AgentState) -> dict[str, Any]:
+    async def writer(state: AgentState) -> dict[str, Any]:
         run_id = state.get("run_id", "desconhecida")
         iteration = state.get("iteration", 0)
         with node_span("writer", run_id=run_id, thread_id=run_id, iteration=iteration) as span:
             critiques = state.get("critiques", [])
             approved = bool(critiques) and critiques[-1].verdict == "ok"
             prompt = WRITER_PROMPT if approved else f"{WRITER_PROMPT}\n\n{UNVALIDATED_NOTICE}"
-            reply = model.invoke([SystemMessage(prompt), HumanMessage(render_material(state))])
+            reply = await model.ainvoke(
+                [SystemMessage(prompt), HumanMessage(render_material(state))]
+            )
             tokens = _tokens_from(reply)
             report = reply.text if isinstance(reply.text, str) else str(reply.content)
 

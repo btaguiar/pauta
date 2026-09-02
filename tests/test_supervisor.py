@@ -33,61 +33,61 @@ def state_with(**overrides: object) -> AgentState:
     return state
 
 
-def test_routes_to_what_the_model_decided(settings: Settings) -> None:
+async def test_routes_to_what_the_model_decided(settings: Settings) -> None:
     model = FakeChatModel(responses=[Router(next="research", rationale="falta fonte")])
     node = make_supervisor_node(model, settings)
-    result = node(state_with())
+    result = await node(state_with())
     assert result["next_agent"] == "research"
     assert result["iteration"] == 1
 
 
-def test_counts_the_tokens_the_call_spent(settings: Settings) -> None:
+async def test_counts_the_tokens_the_call_spent(settings: Settings) -> None:
     model = FakeChatModel(
         responses=[Router(next="research", rationale="falta fonte")],
         input_tokens=90,
         output_tokens=10,
     )
     node = make_supervisor_node(model, settings)
-    assert node(state_with())["tokens_used"] == 100
+    assert (await node(state_with()))["tokens_used"] == 100
 
 
-def test_falls_back_to_the_deterministic_rule_after_two_failures(
+async def test_falls_back_to_the_deterministic_rule_after_two_failures(
     settings: Settings, captured: io.StringIO
 ) -> None:
     """O grafo continua andando quando o LLM que decide o caminho falha."""
     model = FakeChatModel(responses=[ValueError("json quebrado"), ValueError("json quebrado")])
     node = make_supervisor_node(model, settings)
-    result = node(state_with())
+    result = await node(state_with())
     assert result["next_agent"] == "research"
     assert model.call_count == 2
     errors = [event for event in events(captured) if event["event"] == "error"]
     assert len(errors) == 2
 
 
-def test_does_not_call_the_model_when_the_budget_is_gone(settings: Settings) -> None:
+async def test_does_not_call_the_model_when_the_budget_is_gone(settings: Settings) -> None:
     model = FakeChatModel(responses=[])
     node = make_supervisor_node(model, settings)
     state = state_with(tokens_used=settings.BUDGET_TOKENS_PER_RUN)
-    assert node(state)["next_agent"] == "writer"
+    assert (await node(state))["next_agent"] == "writer"
     assert model.call_count == 0
 
 
-def test_does_not_call_the_model_when_the_steps_are_gone(settings: Settings) -> None:
+async def test_does_not_call_the_model_when_the_steps_are_gone(settings: Settings) -> None:
     model = FakeChatModel(responses=[])
     node = make_supervisor_node(model, settings)
     state = state_with(iteration=settings.MAX_SUPERVISOR_STEPS)
-    assert node(state)["next_agent"] == "writer"
+    assert (await node(state))["next_agent"] == "writer"
     assert model.call_count == 0
 
 
-def test_model_cannot_skip_the_critic(settings: Settings) -> None:
+async def test_model_cannot_skip_the_critic(settings: Settings) -> None:
     model = FakeChatModel(responses=[Router(next="writer", rationale="acho que ja da")])
     node = make_supervisor_node(model, settings)
     state = state_with(findings=[Finding(content="a", source="s", agent="research")])
-    assert node(state)["next_agent"] == "critic"
+    assert (await node(state))["next_agent"] == "critic"
 
 
-def test_model_cannot_reopen_the_critic_loop(settings: Settings) -> None:
+async def test_model_cannot_reopen_the_critic_loop(settings: Settings) -> None:
     model = FakeChatModel(responses=[Router(next="critic", rationale="mais uma volta")])
     node = make_supervisor_node(model, settings)
     state = state_with(
@@ -95,18 +95,20 @@ def test_model_cannot_reopen_the_critic_loop(settings: Settings) -> None:
         critiques=[Critique(verdict="refinar"), Critique(verdict="refinar")],
         critic_loops=settings.MAX_CRITIC_LOOPS,
     )
-    assert node(state)["next_agent"] == "writer"
+    assert (await node(state))["next_agent"] == "writer"
 
 
-def test_rationale_reaches_the_event_stream(settings: Settings, captured: io.StringIO) -> None:
+async def test_rationale_reaches_the_event_stream(
+    settings: Settings, captured: io.StringIO
+) -> None:
     model = FakeChatModel(responses=[Router(next="research", rationale="falta preço de GPU")])
     node = make_supervisor_node(model, settings)
-    node(state_with())
+    await node(state_with())
     ends = [event for event in events(captured) if event["event"] == "node_end"]
     assert ends[-1]["rationale"] == "falta preço de GPU"
 
 
-def test_the_model_sees_numbers_not_prose(settings: Settings) -> None:
+async def test_the_model_sees_numbers_not_prose(settings: Settings) -> None:
     state = state_with(
         findings=[Finding(content="a", source="s", agent="research")],
         critiques=[Critique(verdict="refinar", gaps=["falta fonte do preço"])],

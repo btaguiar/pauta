@@ -3,7 +3,7 @@
 O agente define comportamento e não instancia cliente. O modelo chega pronto.
 """
 
-from collections.abc import Callable
+from collections.abc import Collection
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -11,8 +11,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from ..config import Settings, get_settings
-from ..graph.routing import enforce_rules, fallback_route, forced_route
-from ..graph.state import AgentState, NextStep
+from ..graph.routing import ALL_AGENTS, enforce_rules, fallback_route, forced_route
+from ..graph.state import AgentState, GraphNode, NextStep
 from ..observability import emit, node_span
 
 SUPERVISOR_PROMPT = """Você é o supervisor de uma equipe de análise. Diante do estado atual
@@ -68,12 +68,17 @@ def _tokens_from(raw: Any) -> int:
 def make_supervisor_node(
     model: BaseChatModel,
     settings: Settings | None = None,
-) -> Callable[[AgentState], dict[str, Any]]:
-    """Constrói o nó supervisor sobre um modelo já instanciado."""
+    available: Collection[NextStep] = ALL_AGENTS,
+) -> GraphNode:
+    """Constrói o nó supervisor sobre um modelo já instanciado.
+
+    `available` diz quais nós existem no grafo montado. O supervisor não manda
+    trabalho para um nó que não foi registrado.
+    """
     resolved = settings or get_settings()
     router = model.with_structured_output(Router, include_raw=True)
 
-    def supervisor(state: AgentState) -> dict[str, Any]:
+    async def supervisor(state: AgentState) -> dict[str, Any]:
         run_id = state.get("run_id", "desconhecida")
         iteration = state.get("iteration", 0)
         with node_span("supervisor", run_id=run_id, thread_id=run_id, iteration=iteration) as span:
@@ -96,7 +101,7 @@ def make_supervisor_node(
             decision: Router | None = None
             for attempt in range(1, STRUCTURED_PARSE_ATTEMPTS + 1):
                 try:
-                    result = router.invoke(messages)
+                    result = await router.ainvoke(messages)
                     if not isinstance(result, dict):
                         raise TypeError(
                             f"include_raw=True devia devolver dict, veio {type(result).__name__}"
@@ -124,7 +129,7 @@ def make_supervisor_node(
                 route = decision.next
                 rationale = decision.rationale
 
-            route = enforce_rules(state, route, resolved)
+            route = enforce_rules(state, route, resolved, available)
             span.tokens_used = tokens
             span.extra["next_agent"] = route
             span.extra["rationale"] = rationale

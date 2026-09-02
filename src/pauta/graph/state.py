@@ -1,7 +1,8 @@
 """Estado do grafo. É a única parte que o type checker consegue proteger."""
 
 import operator
-from typing import Annotated, Literal, TypedDict
+from collections.abc import Awaitable
+from typing import Annotated, Any, Literal, Protocol, TypedDict
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
@@ -47,6 +48,18 @@ class AgentState(TypedDict, total=False):
     final_report: str | None
     hitl_feedback: str | None
     run_id: str
+
+
+class GraphNode(Protocol):
+    """Assinatura de um nó do grafo.
+
+    O parâmetro precisa se chamar `state`: é assim que o protocolo interno do
+    LangGraph aceita a função em `add_node`. O nó é assíncrono porque o
+    `timeout` por nó do LangGraph 1.2 só vale para nós async: execução síncrona
+    não pode ser cancelada com segurança dentro do processo.
+    """
+
+    def __call__(self, state: AgentState) -> Awaitable[dict[str, Any]]: ...
 
 
 def new_state(task: str, run_id: str) -> AgentState:

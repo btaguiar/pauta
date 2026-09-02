@@ -1,6 +1,6 @@
 """Research: reúne material com fonte declarada. Afirmação sem fonte não vira Finding."""
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -9,7 +9,7 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from ..config import Settings, get_settings
-from ..graph.state import AgentState, Finding
+from ..graph.state import AgentState, Finding, GraphNode
 from ..observability import emit, node_span
 
 RESEARCH_PROMPT = """Você é o pesquisador de uma equipe de análise. Reúna o material
@@ -39,7 +39,7 @@ def _tokens_from(message: Any) -> int:
     return 0
 
 
-def _run_tools(
+async def _run_tools(
     tools: Sequence[BaseTool],
     message: AIMessage,
     *,
@@ -61,7 +61,7 @@ def _run_tools(
             )
             continue
         try:
-            results.append(tool.invoke(call))
+            results.append(await tool.ainvoke(call))
         except Exception as exc:
             emit(
                 "error",
@@ -85,13 +85,13 @@ def make_research_node(
     model: BaseChatModel,
     tools: Sequence[BaseTool],
     settings: Settings | None = None,
-) -> Callable[[AgentState], dict[str, Any]]:
+) -> GraphNode:
     """Constrói o nó de pesquisa sobre um modelo e um conjunto de tools já prontos."""
     resolved = settings or get_settings()
     with_tools = model.bind_tools(list(tools)) if tools else model
     extractor = model.with_structured_output(ResearchOutput, include_raw=True)
 
-    def research(state: AgentState) -> dict[str, Any]:
+    async def research(state: AgentState) -> dict[str, Any]:
         run_id = state.get("run_id", "desconhecida")
         iteration = state.get("iteration", 0)
         with node_span("research", run_id=run_id, thread_id=run_id, iteration=iteration) as span:
@@ -106,15 +106,15 @@ def make_research_node(
             tokens = 0
 
             for _ in range(resolved.MAX_TOOL_ROUNDS):
-                reply = with_tools.invoke(history)
+                reply = await with_tools.ainvoke(history)
                 tokens += _tokens_from(reply)
                 history.append(reply)
                 if not isinstance(reply, AIMessage) or not reply.tool_calls:
                     break
-                history.extend(_run_tools(tools, reply, run_id=run_id))
+                history.extend(await _run_tools(tools, reply, run_id=run_id))
 
             history.append(HumanMessage(EXTRACTION_PROMPT))
-            result = extractor.invoke(history)
+            result = await extractor.ainvoke(history)
             if isinstance(result, dict):
                 tokens += _tokens_from(result.get("raw"))
                 parsed = result.get("parsed")

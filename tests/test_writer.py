@@ -33,31 +33,31 @@ def state_with(**overrides: object) -> AgentState:
     return state
 
 
-def test_writes_the_report_and_ends_the_run(settings: Settings) -> None:
+async def test_writes_the_report_and_ends_the_run(settings: Settings) -> None:
     model = FakeChatModel(responses=["Briefing: migrar não compensa hoje."])
     node = make_writer_node(model, settings)
-    result = node(state_with(critiques=[Critique(verdict="ok")]))
+    result = await node(state_with(critiques=[Critique(verdict="ok")]))
     assert result["final_report"].startswith("Briefing")
     assert result["next_agent"] == "END"
 
 
-def test_asks_for_caveats_when_the_critic_did_not_approve(settings: Settings) -> None:
+async def test_asks_for_caveats_when_the_critic_did_not_approve(settings: Settings) -> None:
     model = FakeChatModel(responses=["Briefing com ressalvas."])
     node = make_writer_node(model, settings)
-    node(state_with(critiques=[Critique(verdict="refinar", gaps=["falta fonte"])]))
+    await node(state_with(critiques=[Critique(verdict="refinar", gaps=["falta fonte"])]))
     system_prompt = str(model.calls[0][0].content)
     assert UNVALIDATED_NOTICE in system_prompt
 
 
-def test_does_not_ask_for_caveats_when_approved(settings: Settings) -> None:
+async def test_does_not_ask_for_caveats_when_approved(settings: Settings) -> None:
     model = FakeChatModel(responses=["Briefing limpo."])
     node = make_writer_node(model, settings)
-    node(state_with(critiques=[Critique(verdict="ok")]))
+    await node(state_with(critiques=[Critique(verdict="ok")]))
     system_prompt = str(model.calls[0][0].content)
     assert UNVALIDATED_NOTICE not in system_prompt
 
 
-def test_material_carries_every_source() -> None:
+async def test_material_carries_every_source() -> None:
     state = state_with(
         findings=[
             Finding(content="preço caiu 10%", source="https://a", agent="research"),
@@ -69,19 +69,19 @@ def test_material_carries_every_source() -> None:
     assert "fonte: cálculo" in rendered
 
 
-def test_empty_material_is_stated_not_hidden() -> None:
+async def test_empty_material_is_stated_not_hidden() -> None:
     assert "nenhuma descoberta foi registrada" in render_material(state_with())
 
 
-def test_human_feedback_reaches_the_writer() -> None:
+async def test_human_feedback_reaches_the_writer() -> None:
     rendered = render_material(state_with(hitl_feedback="foque no custo de saída"))
     assert "foque no custo de saída" in rendered
 
 
-def test_emits_final_and_usage(settings: Settings, captured: io.StringIO) -> None:
+async def test_emits_final_and_usage(settings: Settings, captured: io.StringIO) -> None:
     model = FakeChatModel(responses=["Briefing."], input_tokens=30, output_tokens=20)
     node = make_writer_node(model, settings)
-    node(state_with(tokens_used=1000, critiques=[Critique(verdict="ok")]))
+    await node(state_with(tokens_used=1000, critiques=[Critique(verdict="ok")]))
     kinds = [event["event"] for event in events(captured)]
     assert "final" in kinds
     assert "usage" in kinds
