@@ -1,5 +1,7 @@
 """Interrupt de human-in-the-loop: o grafo congela antes do writer e retoma."""
 
+from typing import Any
+
 import pytest
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
@@ -17,7 +19,7 @@ def hitl_settings(mode: str) -> Settings:
     return get_settings().model_copy(update={"HITL_MODE": mode})
 
 
-def approved_run() -> dict[str, object]:
+def approved_run() -> dict[str, Any]:
     return fake_graph_models(
         supervisor_model=FakeChatModel(
             responses=[
