@@ -1,11 +1,13 @@
 """Fixtures comuns. Nenhum teste aqui toca provider real."""
 
+import asyncio
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Mapping
 
 import pytest
 
 from pauta.config import Settings, get_settings
+from pauta.memory.checkpointer import loop_factory
 
 REQUIRED_ENV = {
     "MODEL_WORKER": "fake/worker",
@@ -27,3 +29,16 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+def pytest_asyncio_loop_factories(
+    config: pytest.Config,
+    item: pytest.Item,
+) -> Mapping[str, Callable[[], asyncio.AbstractEventLoop]]:
+    """Roda os testes no mesmo loop que a aplicação usa.
+
+    No Windows o loop padrão é o Proactor, e o psycopg async recusa rodar sobre
+    ele. Sem isto, todo teste que fala com Postgres morre com um InterfaceError
+    que não tem nada a ver com o que o teste queria provar.
+    """
+    return {"pauta": loop_factory() or asyncio.new_event_loop}

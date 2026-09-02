@@ -143,6 +143,12 @@ novo antes de confiar nesta tabela.
 | `interrupt_before` | argumento de `compile()`, lista de nós | congela antes do writer quando `HITL_MODE=interrupt` |
 | `CompiledStateGraph.stream` | aceita `control=`, `durability=` e `version="v1" \| "v2"` | stream tipado que vira SSE |
 
+No Windows, o `psycopg` em modo assíncrono recusa o `ProactorEventLoop`, que é o
+loop padrão da plataforma. Quem abre o loop escolhe a fábrica certa, via
+`memory.checkpointer.loop_factory`. Uma biblioteca não troca a policy global do
+processo por conta própria, então isso é decisão do ponto de entrada: o runner do
+eval, a app da API e o hook `pytest_asyncio_loop_factories` nos testes.
+
 Um `RunControl` é por run. Reusar um que já foi drenado deixa a run seguinte parada
 antes do primeiro superstep, e há teste para isso.
 

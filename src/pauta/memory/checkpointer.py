@@ -5,7 +5,10 @@
 sem banco caseiro nenhum.
 """
 
-from collections.abc import AsyncIterator
+import asyncio
+import selectors
+import sys
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -15,6 +18,27 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from ..config import Settings, get_settings
 from ..observability import emit
+
+
+def loop_factory() -> Callable[[], asyncio.AbstractEventLoop] | None:
+    """Fábrica de event loop compatível com o psycopg async.
+
+    O `ProactorEventLoop`, padrão do Windows, não serve: o psycopg recusa rodar
+    em modo assíncrono sobre ele. Em Linux e macOS o padrão já serve e esta
+    função devolve `None`, que quer dizer "use o de sempre".
+
+    Quem abre o loop passa isto ao `asyncio.Runner`. Uma biblioteca não troca a
+    policy global do processo por conta própria.
+    """
+    if sys.platform != "win32":
+        return None
+    return lambda: asyncio.SelectorEventLoop(selectors.SelectSelector())
+
+
+def run_async(coro: Any) -> Any:
+    """Roda uma corrotina no loop certo para esta plataforma."""
+    with asyncio.Runner(loop_factory=loop_factory()) as runner:
+        return runner.run(coro)
 
 
 @asynccontextmanager

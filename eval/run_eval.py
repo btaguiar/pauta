@@ -10,7 +10,6 @@ Uso:
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import sys
 import time
@@ -24,6 +23,7 @@ from pydantic import ValidationError
 from pauta.config import get_settings
 from pauta.graph.builder import build_graph
 from pauta.graph.state import new_state
+from pauta.memory.checkpointer import run_async
 from pauta.observability import setup_logging
 from pauta.tools.calculator import get_calculator_tool
 from pauta.tools.web_search import get_web_search_tool
@@ -184,7 +184,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="roda tarefas do golden set contra o grafo")
     parser.add_argument("--tasks", default=str(DEFAULT_TASKS), help="caminho do jsonl")
     parser.add_argument("--limit", type=int, default=None, help="quantas tarefas rodar")
-    return asyncio.run(main_async(parser.parse_args()))
+    return int(run_async(main_async(parser.parse_args())))
 
 
 if __name__ == "__main__":

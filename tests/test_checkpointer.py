@@ -28,18 +28,37 @@ def test_the_database_url_is_configured_not_hardcoded() -> None:
 @requires_postgres
 async def test_postgres_checkpointer_round_trips_a_thread() -> None:
     """Com banco, o estado sobrevive a fechar e reabrir a conexão."""
+    import uuid
+
     from langchain_core.runnables import RunnableConfig
 
+    from pauta.agents.research import ResearchOutput
     from pauta.agents.supervisor import Router
     from pauta.graph.builder import build_graph
-    from pauta.graph.state import new_state
+    from pauta.graph.state import Critique, Finding, new_state
     from tests.fakes import FakeChatModel, fake_graph_models
 
-    config: RunnableConfig = {"configurable": {"thread_id": "pg-round-trip"}}
+    thread_id = f"pg-round-trip-{uuid.uuid4()}"
+    config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
     async with postgres_checkpointer() as saver:
         graph = build_graph(
             **fake_graph_models(
-                supervisor_model=FakeChatModel(responses=[Router(next="writer", rationale="x")]),
+                supervisor_model=FakeChatModel(
+                    responses=[
+                        Router(next="research", rationale="reunir"),
+                        Router(next="critic", rationale="validar"),
+                        Router(next="writer", rationale="redigir"),
+                    ]
+                ),
+                research_model=FakeChatModel(
+                    responses=[
+                        "achei",
+                        ResearchOutput(
+                            findings=[Finding(content="a", source="https://a", agent="research")]
+                        ),
+                    ]
+                ),
+                critic_model=FakeChatModel(responses=[Critique(verdict="ok")]),
                 writer_model=FakeChatModel(responses=["Briefing."]),
             ),
             checkpointer=saver,
@@ -50,3 +69,5 @@ async def test_postgres_checkpointer_round_trips_a_thread() -> None:
         graph = build_graph(**fake_graph_models(), checkpointer=saver)
         snapshot = await graph.aget_state(config)
         assert snapshot.values["task"] == "durável"
+        assert snapshot.values["final_report"] == "Briefing."
+        assert [f.content for f in snapshot.values["findings"]] == ["a"]
