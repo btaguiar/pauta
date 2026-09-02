@@ -31,10 +31,28 @@ def model_name_for(role: Role) -> str:
     return name
 
 
+class MissingGatewayKey(RuntimeError):
+    """`OPENROUTER_API_KEY` não está no ambiente."""
+
+
 @lru_cache
 def get_model(role: Role) -> BaseChatModel:
-    """Instância única por papel, com `temperature=0` para o eval ser reprodutível."""
-    return init_chat_model(model_name_for(role), temperature=0)
+    """Instância única por papel, com `temperature=0` para o eval ser reprodutível.
+
+    O provider é declarado, nunca inferido: os ids do gateway trazem a casa de
+    origem no próprio nome (`openai/...`, `anthropic/...`) e deixar o LangChain
+    adivinhar a partir do prefixo daria no provider errado.
+    """
+    settings = get_settings()
+    if not settings.OPENROUTER_API_KEY:
+        raise MissingGatewayKey("OPENROUTER_API_KEY não definida; nenhum modelo pode ser criado")
+    return init_chat_model(
+        model_name_for(role),
+        model_provider="openai",
+        temperature=0,
+        base_url=settings.OPENROUTER_BASE_URL,
+        api_key=settings.OPENROUTER_API_KEY,
+    )
 
 
 def reset_model_cache() -> None:

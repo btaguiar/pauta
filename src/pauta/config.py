@@ -32,9 +32,11 @@ class Settings(BaseSettings):
     # Juiz do eval. A credencial vem da variável padrão do provider dele.
     JUDGE_MODEL: str | None = None
 
-    # Providers. Os SDKs leem estas chaves do ambiente sozinhos; ficam aqui
-    # apenas para o startup poder falhar cedo e com mensagem clara.
-    OPENAI_API_KEY: str | None = None
+    # Acesso aos modelos via gateway OpenRouter, que fala o protocolo da OpenAI.
+    # Uma chave, vários providers, e o juiz do eval pode ser de outra casa sem
+    # exigir uma segunda conta.
+    OPENROUTER_API_KEY: str | None = None
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     TAVILY_API_KEY: str | None = None
 
     # Banco. Valor de desenvolvimento idêntico ao do docker-compose.yml.
@@ -72,7 +74,7 @@ class Settings(BaseSettings):
     @field_validator(
         "COST_PER_MTOK_USD",
         "JUDGE_MODEL",
-        "OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
         "TAVILY_API_KEY",
         "LANGSMITH_API_KEY",
         mode="before",

@@ -1,6 +1,12 @@
 import pytest
 
-from pauta.models import ROLE_ENV, get_model, model_name_for, reset_model_cache
+from pauta.models import (
+    ROLE_ENV,
+    MissingGatewayKey,
+    get_model,
+    model_name_for,
+    reset_model_cache,
+)
 
 
 def test_every_role_maps_to_an_environment_variable() -> None:
@@ -52,8 +58,44 @@ def test_get_model_is_cached_per_role(monkeypatch: pytest.MonkeyPatch) -> None:
         calls.append(model)
         return object()
 
+    monkeypatch.setenv("OPENROUTER_API_KEY", "chave-de-teste")
     monkeypatch.setattr("pauta.models.init_chat_model", fake_init)
+    from pauta.config import get_settings
+
+    get_settings.cache_clear()
     reset_model_cache()
     get_model("research")
     get_model("research")
-    assert calls == ["fake-worker"]
+    assert calls == ["fake/worker"]
+
+
+def test_the_gateway_is_wired_explicitly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provider declarado e base_url do gateway, nunca inferidos do id."""
+    seen: dict[str, object] = {}
+
+    def fake_init(model: str, **kwargs: object) -> object:
+        seen.update(kwargs)
+        seen["model"] = model
+        return object()
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "chave-de-teste")
+    monkeypatch.setattr("pauta.models.init_chat_model", fake_init)
+    from pauta.config import get_settings
+
+    get_settings.cache_clear()
+    reset_model_cache()
+    get_model("critic")
+    assert seen["model"] == "fake/critic"
+    assert seen["model_provider"] == "openai"
+    assert seen["base_url"] == "https://openrouter.ai/api/v1"
+    assert seen["temperature"] == 0
+
+
+def test_no_key_fails_before_any_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    from pauta.config import get_settings
+
+    get_settings.cache_clear()
+    reset_model_cache()
+    with pytest.raises(MissingGatewayKey, match="OPENROUTER_API_KEY"):
+        get_model("writer")

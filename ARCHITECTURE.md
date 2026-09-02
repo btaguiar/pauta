@@ -117,10 +117,17 @@ fazem raciocínio. Modelo barato em tudo sabota o experimento central do projeto
 porque crítico fraco tende a carimbar `verdict: ok`.
 
 **Decisão.** Toda instanciação passa por `get_model(role)`, com `init_chat_model` e
-variáveis de ambiente. Nenhum default no código.
+variáveis de ambiente. Nenhum default no código. O acesso é por um gateway,
+OpenRouter, que fala o protocolo da OpenAI: o id do modelo carrega a casa de origem
+(`openai/gpt-...`, `anthropic/claude-...`) e a chave é uma só.
 
 **Consequência.** Trocar de provider é editar `.env`. O eval ganha um terceiro eixo,
-crítico barato contra crítico melhor.
+crítico barato contra crítico melhor. O juiz de outro provider, que a metodologia
+exige para evitar auto-preferência, deixa de precisar de uma segunda conta e vira
+uma troca de id. O `model_provider` é passado explícito como `openai` porque o id do
+gateway começa com o nome da casa de origem, e deixar o LangChain inferir daria no
+provider errado. O preço fica em duas casas, a tabela do gateway e a do provider, e
+o número que vale para o eval é o que o gateway cobra.
 
 ## APIs do LangGraph que este projeto usa
 
