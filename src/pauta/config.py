@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     CHUNK_SIZE: int = Field(default=800, gt=0)
     CHUNK_OVERLAP: int = Field(default=100, ge=0)
 
+    # Preço por milhão de tokens do modelo medido. Sem isto, o relatório mostra
+    # tokens e diz que não calculou custo, em vez de estimar um número inventado.
+    COST_PER_MTOK_USD: float | None = None
+
     # Guardrails da API pública.
     DAILY_BUDGET_USD: float = Field(default=5.00, gt=0)
     RATE_LIMIT_PER_IP: str = "3/hour"

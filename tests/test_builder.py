@@ -206,3 +206,11 @@ def test_the_tools_reach_the_researcher(settings: Settings) -> None:
         settings=settings,
     )
     assert [t.name for t in research.bound_tools] == ["busca_fake"]
+
+
+async def test_node_timeout_is_not_retried() -> None:
+    """Timeout de nó não é erro de rede nem rate limit, então não retenta."""
+    from langgraph.errors import NodeTimeoutError
+
+    error = NodeTimeoutError("research", 0.1, kind="run", run_timeout=0.05)
+    assert is_retryable(error) is False

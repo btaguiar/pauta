@@ -1,0 +1,23 @@
+# Postgres com pgvector: guarda o checkpoint do grafo e o índice do retriever
+# (ADR 005). A credencial abaixo é de desenvolvimento local e é idêntica à do
+# .env.example. Se uma mudar, a outra muda no mesmo commit.
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: pauta-postgres
+    environment:
+      POSTGRES_USER: pauta
+      POSTGRES_PASSWORD: pauta
+      POSTGRES_DB: pauta
+    ports:
+      - "5432:5432"
+    volumes:
+      - pauta-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pauta -d pauta"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pauta-pgdata:
