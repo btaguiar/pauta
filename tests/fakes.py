@@ -35,6 +35,7 @@ class FakeChatModel(BaseChatModel):
 
     _cursor: int = PrivateAttr(default=0)
     _calls: list[list[BaseMessage]] = PrivateAttr(default_factory=list)
+    _bound_tools: list[Any] = PrivateAttr(default_factory=list)
 
     @property
     def _llm_type(self) -> str:
@@ -63,6 +64,8 @@ class FakeChatModel(BaseChatModel):
         return value
 
     def _message_from(self, value: Any) -> AIMessage:
+        if isinstance(value, AIMessage):
+            return value
         content = value if isinstance(value, str) else value.model_dump_json()
         return AIMessage(
             content=content,
@@ -82,6 +85,15 @@ class FakeChatModel(BaseChatModel):
     ) -> ChatResult:
         value = self._next(messages)
         return ChatResult(generations=[ChatGeneration(message=self._message_from(value))])
+
+    def bind_tools(self, tools: Sequence[Any], **kwargs: Any) -> "FakeChatModel":
+        """Registra as tools oferecidas e devolve a si mesmo, sem alterar a fila."""
+        self._bound_tools = list(tools)
+        return self
+
+    @property
+    def bound_tools(self) -> list[Any]:
+        return self._bound_tools
 
     def with_structured_output(
         self,

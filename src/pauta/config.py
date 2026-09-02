@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     BUDGET_TOKENS_PER_RUN: int = Field(default=60_000, gt=0)
     NODE_TIMEOUT_S: float = Field(default=20.0, gt=0)
     NODE_RETRIES: int = Field(default=2, ge=0)
+    # Sem teto, um agente com tool entra em loop de chamadas sozinho.
+    MAX_TOOL_ROUNDS: int = Field(default=3, gt=0)
 
     # Retriever.
     RETRIEVER_TOP_K: int = Field(default=5, gt=0)
