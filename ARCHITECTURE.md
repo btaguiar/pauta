@@ -139,8 +139,12 @@ novo antes de confiar nesta tabela.
 | `StateGraph.add_node` | `add_node(node, action=None, *, retry_policy=None, timeout=None, error_handler=None, defer=False, ...)` | timeout e retry por nó, sem wrapper manual |
 | `timeout` por nó | só aceito em nó `async`; nó síncrono é recusado no `compile()` | por isso os cinco nós são `async def` |
 | `RetryPolicy` | `NamedTuple(initial_interval, backoff_factor, max_interval, max_attempts, jitter, retry_on)` | `max_attempts` e um `retry_on` próprio |
-| `RunControl` | `langgraph.runtime.RunControl`, com `request_drain(reason)` e `drain_requested` | drain cooperativo, teste de durabilidade da semana 2 |
+| `RunControl` | `langgraph.runtime.RunControl`, com `request_drain(reason)` e `drain_requested` | drain cooperativo; o `ainvoke` recebe `control=` e levanta `GraphDrained` |
+| `interrupt_before` | argumento de `compile()`, lista de nós | congela antes do writer quando `HITL_MODE=interrupt` |
 | `CompiledStateGraph.stream` | aceita `control=`, `durability=` e `version="v1" \| "v2"` | stream tipado que vira SSE |
+
+Um `RunControl` é por run. Reusar um que já foi drenado deixa a run seguinte parada
+antes do primeiro superstep, e há teste para isso.
 
 O `default_retry_on` do LangGraph retenta 5xx e recusa `ValueError` e `TypeError`.
 Ele não retenta 429. Como rate limit precisa ser retentado e erro de validação de
