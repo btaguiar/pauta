@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import BaseTool
 from pydantic import ValidationError
 
 from pauta.config import get_settings
@@ -26,6 +27,7 @@ from pauta.graph.state import new_state
 from pauta.memory.checkpointer import run_async
 from pauta.observability import setup_logging
 from pauta.tools.calculator import get_calculator_tool
+from pauta.tools.retriever import get_retriever_tool, load_documents
 from pauta.tools.web_search import get_web_search_tool
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -59,10 +61,9 @@ def load_tasks(path: Path) -> list[dict[str, Any]]:
 
 
 def corpus_is_empty() -> bool:
-    """O retriever ainda não indexou nada quando `samples/` não tem arquivo."""
-    if not SAMPLES_DIR.is_dir():
-        return True
-    return not any(item.is_file() for item in SAMPLES_DIR.rglob("*"))
+    """Vazio é não ter documento indexável, não apenas não ter arquivo."""
+    documents, _ = load_documents(SAMPLES_DIR)
+    return not documents
 
 
 def select_tasks(
@@ -84,11 +85,19 @@ def select_tasks(
 
 async def run_task(task: dict[str, Any], *, index: int) -> TaskResult:
     settings = get_settings()
-    research_tools = [get_web_search_tool()] if settings.TAVILY_API_KEY else []
+    research_tools: list[BaseTool] = []
+    if settings.TAVILY_API_KEY:
+        research_tools.append(get_web_search_tool())
+    if not corpus_is_empty():
+        research_tools.append(get_retriever_tool())
+
+    analyst_tools: list[BaseTool] = [get_calculator_tool()]
+    if not corpus_is_empty():
+        analyst_tools.append(get_retriever_tool())
 
     graph = build_graph(
         research_tools=research_tools,
-        analyst_tools=[get_calculator_tool()],
+        analyst_tools=analyst_tools,
         settings=settings,
     )
     run_id = f"eval-{task['id']}"
