@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  # 3.12 e não 3.11 pelo mesmo motivo do pyproject: os stubs que chegam pelo
+  # pytest usam sintaxe de 3.12. Quem garante compatibilidade com o mínimo
+  # declarado em requires-python é o ruff, com target-version = "py311".
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  lint-test:
+    name: lint, tipos e testes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Instalar dependências
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Formatação
+        run: uv run ruff format --check .
+
+      - name: Tipos
+        run: uv run mypy
+
+      - name: Testes
+        # Sem PAUTA_TEST_POSTGRES, os testes que exigem banco são pulados aqui.
+        # Eles rodam no job `durabilidade`, que sobe o Postgres de verdade.
+        run: uv run pytest
+
+  durabilidade:
+    name: durabilidade com Postgres
+    runs-on: ubuntu-latest
+    # Este job NÃO é condicional, de propósito. Ele é o que sustenta a
+    # afirmação central do README: a run sobrevive à morte do processo e retoma
+    # pelo thread_id. Uma prova que só roda quando alguém lembra não é prova.
+    services:
+      postgres:
+        # Mesma imagem do docker-compose.yml, e as credenciais são as mesmas do
+        # .env.example. Se uma mudar, as três mudam no mesmo commit.
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: pauta
+          POSTGRES_PASSWORD: pauta
+          POSTGRES_DB: pauta
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pauta -d pauta"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://pauta:pauta@localhost:5432/pauta
+      PAUTA_TEST_POSTGRES: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Instalar dependências
+        run: uv sync --frozen
+
+      - name: Suite completa, com o drain cooperativo e a morte suja
+        run: uv run pytest
+
+  eval:
+    name: eval sobre o golden set
+    # Este é condicional porque gasta chamada de API paga. Destravar com
+    # `gh variable set ENABLE_EVAL --body true` e os segredos preenchidos.
+    # No grifo um job assim ficou atrás de variável e nunca foi ligado. Se este
+    # continuar desligado, o número prometido no README não existe.
+    if: vars.ENABLE_EVAL == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Instalar dependências
+        run: uv sync --frozen
+
+      - name: Calibrar o juiz antes de confiar nele
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          MODEL_WORKER: ${{ vars.MODEL_WORKER }}
+          MODEL_ROUTER: ${{ vars.MODEL_ROUTER }}
+          MODEL_CRITIC: ${{ vars.MODEL_CRITIC }}
+          EMBEDDING_MODEL: ${{ vars.EMBEDDING_MODEL }}
+          JUDGE_MODEL: ${{ vars.JUDGE_MODEL }}
+        run: uv run python eval/calibrate_judge.py
+
+      - name: Rodar o golden set sem as tarefas que exigem corpus
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          MODEL_WORKER: ${{ vars.MODEL_WORKER }}
+          MODEL_ROUTER: ${{ vars.MODEL_ROUTER }}
+          MODEL_CRITIC: ${{ vars.MODEL_CRITIC }}
+          EMBEDDING_MODEL: ${{ vars.EMBEDDING_MODEL }}
+          JUDGE_MODEL: ${{ vars.JUDGE_MODEL }}
+          COST_PER_MTOK_USD: ${{ vars.COST_PER_MTOK_USD }}
+        run: uv run python eval/run_eval.py --judge
+
+      - name: Guardar o resultado da rodada
+        # Rodada local fica fora do git; a do CI é publicada como artefato.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: eval/results/
+          if-no-files-found: error
