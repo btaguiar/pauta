@@ -4,7 +4,17 @@ from typing import Any
 
 import pytest
 
-from scoring import aggregate, coverage, flags_uncertainty, flatten, score_task
+from scoring import (
+    Score,
+    aggregate,
+    collapse_repeats,
+    coverage,
+    flags_uncertainty,
+    flatten,
+    repeat_deviation,
+    score_task,
+    spread,
+)
 
 
 def a_task(**overrides: Any) -> dict[str, Any]:
@@ -112,3 +122,49 @@ def test_a_metric_nobody_exercised_reports_zero_over_zero() -> None:
 def test_aggregating_nothing_does_not_explode() -> None:
     summary = aggregate([])
     assert summary["cobertura_n"] == 0
+
+
+def test_one_sample_has_no_spread_instead_of_an_error() -> None:
+    assert spread([]) == (0.0, 0.0)
+    assert spread([2.0]) == (2.0, 0.0)
+
+
+def test_spread_reports_mean_and_sample_deviation() -> None:
+    average, deviation = spread([1.0, 2.0, 3.0])
+    assert average == 2.0
+    assert deviation == pytest.approx(1.0)
+
+
+def test_repeats_collapse_into_one_score_per_task() -> None:
+    """Uma tarefa rodada três vezes não pode pesar o triplo na média geral."""
+    collapsed = collapse_repeats(
+        [
+            {"cobertura": 1.0, "calculadora_usada": True},
+            {"cobertura": 0.0, "calculadora_usada": False},
+        ]
+    )
+    assert collapsed["cobertura"] == 0.5
+    assert collapsed["calculadora_usada"] == 0.5
+
+
+def test_collapsing_keeps_none_for_what_the_task_never_required() -> None:
+    collapsed = collapse_repeats([{"cobertura": 1.0}, {"cobertura": 1.0}])
+    assert collapsed["pesquisa_feita"] is None
+
+
+def test_the_deviation_is_the_mean_of_the_per_task_deviations() -> None:
+    """Definição escolhida: quanto o score de uma tarefa varia entre execuções."""
+    grouped: dict[str, list[Score]] = {
+        "t01": [{"cobertura": 1.0}, {"cobertura": 0.0}],
+        "t02": [{"cobertura": 1.0}, {"cobertura": 1.0}],
+    }
+    deviations = repeat_deviation(grouped)
+    assert deviations["cobertura_desvio"] == pytest.approx(0.7071 / 2, abs=1e-3)
+    assert deviations["cobertura_desvio_n"] == 2
+
+
+def test_a_task_run_once_contributes_no_deviation() -> None:
+    single: dict[str, list[Score]] = {"t01": [{"cobertura": 1.0}]}
+    deviations = repeat_deviation(single)
+    assert deviations["cobertura_desvio"] == 0.0
+    assert deviations["cobertura_desvio_n"] == 0

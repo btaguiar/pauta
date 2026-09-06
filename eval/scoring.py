@@ -8,8 +8,8 @@ Nada aqui chama modelo. O que não dá para decidir por regra fica para o juiz d
 `judge.py`, e é o juiz que exige calibração antes de qualquer número dele valer.
 """
 
-from collections.abc import Iterable, Sequence
-from statistics import mean
+from collections.abc import Iterable, Mapping, Sequence
+from statistics import mean, stdev
 from typing import Any
 from unicodedata import combining, normalize
 
@@ -107,3 +107,50 @@ def aggregate(scores: Sequence[dict[str, float | bool | None]]) -> dict[str, flo
         summary[key] = round(mean(values), 4) if values else 0.0
         summary[f"{key}_n"] = len(values)
     return summary
+
+
+def spread(values: Sequence[float]) -> tuple[float, float]:
+    """Média e desvio amostral. Uma amostra só tem desvio zero, não indefinido."""
+    if not values:
+        return 0.0, 0.0
+    if len(values) == 1:
+        return float(values[0]), 0.0
+    return mean(values), stdev(values)
+
+
+Score = dict[str, float | bool | None]
+
+
+def collapse_repeats(repeats: Sequence[Score]) -> Score:
+    """As N execuções da mesma tarefa viram um score só, pela média.
+
+    Sem isto, uma tarefa rodada três vezes pesaria três vezes na média geral, e
+    o número diria mais sobre quantas repetições houve que sobre o sistema.
+    """
+    collapsed: Score = {}
+    for key in SCORE_KEYS:
+        values = [float(value) for repeat in repeats if (value := repeat.get(key)) is not None]
+        collapsed[key] = mean(values) if values else None
+    return collapsed
+
+
+def repeat_deviation(grouped: Mapping[str, Sequence[Score]]) -> dict[str, float]:
+    """Quanto cada rótulo se mexe entre repetições da mesma tarefa.
+
+    Definição, porque média de desvio não é óbvia: para cada tarefa calcula-se o
+    desvio das suas repetições, e o número reportado é a média desses desvios
+    entre as tarefas. Lê-se como "quanto o score de uma tarefa costuma variar de
+    uma execução para outra". Tarefa com menos de duas repetições não entra.
+
+    Sem este número não há como separar melhora de ruído entre dois commits.
+    """
+    deviations: dict[str, float] = {}
+    for key in SCORE_KEYS:
+        per_task: list[float] = []
+        for repeats in grouped.values():
+            values = [float(value) for repeat in repeats if (value := repeat.get(key)) is not None]
+            if len(values) >= 2:
+                per_task.append(stdev(values))
+        deviations[f"{key}_desvio"] = round(mean(per_task), 4) if per_task else 0.0
+        deviations[f"{key}_desvio_n"] = len(per_task)
+    return deviations

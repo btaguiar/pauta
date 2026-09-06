@@ -141,14 +141,41 @@ def test_the_report_shows_the_labels_each_task_was_scored_on() -> None:
         scores={"cobertura": 1.0, "calculadora_usada": False, "pesquisa_feita": None}
     )
     rendered = run_eval.render_report([result], skipped=0, price=None)
-    assert "cobertura=1.00" in rendered
-    assert "calculadora_usada=NAO" in rendered
-    assert "pesquisa_feita" not in rendered.split("rótulos:")[1].split("\n")[0]
+    label_line = rendered.split("rótulos:")[1].split("\n")[0]
+    assert "cobertura=1.00" in label_line
+    assert "calculadora_usada=0.00" in label_line
+    assert "pesquisa_feita" not in label_line
 
 
 def test_the_summary_carries_a_denominator_for_every_label() -> None:
     rendered = run_eval.render_report(
         [a_scored_result(scores={"cobertura": 0.5})], skipped=0, price=None
     )
-    assert "cobertura: 0.5000 (n=1)" in rendered
+    assert "cobertura: 0.5000 (n=1, uma execução por tarefa)" in rendered
     assert "calculadora_usada: sem tarefa que exija (n=0)" in rendered
+
+
+def test_repeats_of_one_task_collapse_into_a_single_line() -> None:
+    """Três repetições não podem virar três tarefas na média geral."""
+    runs = [
+        a_scored_result(repeat=0, tokens_used=1000, scores={"cobertura": 1.0}),
+        a_scored_result(repeat=1, tokens_used=1400, scores={"cobertura": 0.0}),
+    ]
+    rendered = run_eval.render_report(runs, skipped=0, price=None)
+    assert rendered.count("[t01] compare custo") == 1
+    assert "execuções: 2" in rendered
+    assert "cobertura: 0.5000" in rendered
+
+
+def test_the_deviation_between_repeats_is_reported() -> None:
+    """Sem desvio não dá para separar melhora de ruído entre dois commits."""
+    runs = [
+        a_scored_result(repeat=0, scores={"cobertura": 1.0}),
+        a_scored_result(repeat=1, scores={"cobertura": 0.0}),
+    ]
+    metrics = run_eval.metrics_of(runs, skipped=0, price=None)
+    assert metrics["total_tarefas"] == 1
+    assert metrics["execucoes"] == 2
+    assert metrics["repeticoes"] == 2
+    assert metrics["cobertura"] == 0.5
+    assert metrics["cobertura_desvio"] == pytest.approx(0.7071, abs=1e-4)
