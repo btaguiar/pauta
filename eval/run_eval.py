@@ -11,9 +11,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 import time
-from dataclasses import dataclass
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +28,8 @@ from pauta.config import get_settings
 from pauta.graph.builder import build_graph
 from pauta.graph.state import new_state
 from pauta.memory.checkpointer import memory_checkpointer, run_async
-from pauta.observability import setup_logging
+from pauta.observability import PAYLOAD_KEY, get_logger, setup_logging
+from scoring import SCORE_KEYS, aggregate, score_task
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_TASKS = REPO_ROOT / "eval" / "tasks.jsonl"
@@ -45,11 +49,50 @@ class TaskResult:
     tokens_used: int
     latency_s: float
     error: str | None = None
+    tools_called: list[str] = field(default_factory=list)
+    scores: dict[str, float | bool | None] = field(default_factory=dict)
 
     def cost_usd(self, price_per_mtok: float | None) -> float | None:
         if price_per_mtok is None:
             return None
         return self.tokens_used / TOKENS_PER_MILLION * price_per_mtok
+
+
+class EventCollector(logging.Handler):
+    """Junta os eventos estruturados que uma tarefa emitiu.
+
+    O grafo já publica `tool_call` para cada ferramenta que roda. Ler o próprio
+    stream é mais fiel que inferir do estado final se a calculadora foi usada:
+    um finding do analyst prova que ele escreveu algo, não que ele calculou.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.events: list[dict[str, Any]] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        payload = getattr(record, PAYLOAD_KEY, None)
+        if isinstance(payload, dict):
+            self.events.append(payload)
+
+    def tools_called(self) -> list[str]:
+        return [
+            str(event["tool"])
+            for event in self.events
+            if event.get("event") == "tool_call" and "tool" in event
+        ]
+
+
+@contextmanager
+def collecting_events() -> Iterator[EventCollector]:
+    """Escuta o logger durante uma tarefa e larga o handler ao sair."""
+    handler = EventCollector()
+    logger = get_logger()
+    logger.addHandler(handler)
+    try:
+        yield handler
+    finally:
+        logger.removeHandler(handler)
 
 
 def load_tasks(path: Path) -> list[dict[str, Any]]:
@@ -93,28 +136,50 @@ async def run_task(task: dict[str, Any], *, index: int) -> TaskResult:
     run_id = f"eval-{task['id']}"
     config: RunnableConfig = {"configurable": {"thread_id": f"{run_id}-{index}"}}
     started = time.perf_counter()
-    try:
-        final = await graph.ainvoke(new_state(task=task["task"], run_id=run_id), config=config)
-    except Exception as exc:
-        return TaskResult(
-            task_id=task["id"],
-            task=task["task"],
-            report="",
-            findings=0,
-            iterations=0,
-            tokens_used=0,
-            latency_s=round(time.perf_counter() - started, 2),
-            error=f"{type(exc).__name__}: {exc}",
-        )
+    with collecting_events() as events:
+        try:
+            final = await graph.ainvoke(new_state(task=task["task"], run_id=run_id), config=config)
+        except Exception as exc:
+            return TaskResult(
+                task_id=task["id"],
+                task=task["task"],
+                report="",
+                findings=0,
+                iterations=0,
+                tokens_used=0,
+                latency_s=round(time.perf_counter() - started, 2),
+                error=f"{type(exc).__name__}: {exc}",
+                tools_called=events.tools_called(),
+            )
+        called = events.tools_called()
+
+    report = final.get("final_report") or ""
+    findings = len(final.get("findings", []))
+    iterations = final.get("iteration", 0)
     return TaskResult(
         task_id=task["id"],
         task=task["task"],
-        report=final.get("final_report") or "",
-        findings=len(final.get("findings", [])),
-        iterations=final.get("iteration", 0),
+        report=report,
+        findings=findings,
+        iterations=iterations,
         tokens_used=final.get("tokens_used", 0),
         latency_s=round(time.perf_counter() - started, 2),
+        tools_called=called,
+        scores=score_task(
+            task,
+            report=report,
+            iterations=iterations,
+            findings=findings,
+            tools_called=called,
+        ),
     )
+
+
+def render_score(value: float | bool) -> str:
+    """Booleano vira sim ou nao; fração vira número. Cada rótulo lido do jeito dele."""
+    if isinstance(value, bool):
+        return "sim" if value else "NAO"
+    return f"{value:.2f}"
 
 
 def render_report(results: list[TaskResult], skipped: int, price: float | None) -> str:
@@ -136,6 +201,12 @@ def render_report(results: list[TaskResult], skipped: int, price: float | None) 
             f"descobertas: {result.findings} · ciclos: {result.iterations} · "
             f"tokens: {result.tokens_used} · custo: {cost_text} · {result.latency_s}s"
         )
+        scored = {key: value for key, value in result.scores.items() if value is not None}
+        if scored:
+            lines.append(
+                "rótulos: "
+                + " · ".join(f"{key}={render_score(value)}" for key, value in scored.items())
+            )
 
     total_tokens = sum(r.tokens_used for r in results)
     failures = [r for r in results if r.error]
@@ -149,6 +220,14 @@ def render_report(results: list[TaskResult], skipped: int, price: float | None) 
         f"tokens somados: {total_tokens} · custo somado: "
         + (f"{total_cost:.4f} USD" if total_cost is not None else "não calculado")
     )
+
+    summary = aggregate([result.scores for result in results if result.scores])
+    lines.append("")
+    lines.append("rótulos do golden set:")
+    for key in SCORE_KEYS:
+        denominator = summary[f"{key}_n"]
+        value = f"{summary[key]:.4f}" if denominator else "sem tarefa que exija"
+        lines.append(f"  {key}: {value} (n={denominator})")
     return "\n".join(lines)
 
 

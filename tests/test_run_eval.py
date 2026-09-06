@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 import run_eval
+from pauta.observability import emit, setup_logging
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -101,3 +102,53 @@ def test_every_task_in_the_golden_set_has_an_id() -> None:
     raw = (REPO_ROOT / "eval" / "tasks.jsonl").read_text(encoding="utf-8")
     ids = [json.loads(line)["id"] for line in raw.splitlines() if line.strip()]
     assert len(ids) == len(set(ids))
+
+
+def test_the_collector_picks_up_the_tools_the_graph_reported() -> None:
+    """A prova de que a calculadora rodou vem do stream de eventos, não do estado."""
+    setup_logging()
+    with run_eval.collecting_events() as events:
+        emit("tool_call", node="analyst", run_id="r1", tool="calculator", args={})
+        emit("finding", node="analyst", run_id="r1", source="cálculo")
+        emit("tool_call", node="research", run_id="r1", tool="retriever", args={})
+    assert events.tools_called() == ["calculator", "retriever"]
+
+
+def test_the_collector_stops_listening_after_the_task() -> None:
+    setup_logging()
+    with run_eval.collecting_events() as events:
+        pass
+    emit("tool_call", node="analyst", run_id="r1", tool="calculator", args={})
+    assert events.tools_called() == []
+
+
+def a_scored_result(**overrides: Any) -> run_eval.TaskResult:
+    fields: dict[str, Any] = {
+        "task_id": "t01",
+        "task": "compare custo",
+        "report": "Briefing com GPU.",
+        "findings": 2,
+        "iterations": 3,
+        "tokens_used": 1_000,
+        "latency_s": 0.5,
+    }
+    fields.update(overrides)
+    return run_eval.TaskResult(**fields)
+
+
+def test_the_report_shows_the_labels_each_task_was_scored_on() -> None:
+    result = a_scored_result(
+        scores={"cobertura": 1.0, "calculadora_usada": False, "pesquisa_feita": None}
+    )
+    rendered = run_eval.render_report([result], skipped=0, price=None)
+    assert "cobertura=1.00" in rendered
+    assert "calculadora_usada=NAO" in rendered
+    assert "pesquisa_feita" not in rendered.split("rótulos:")[1].split("\n")[0]
+
+
+def test_the_summary_carries_a_denominator_for_every_label() -> None:
+    rendered = run_eval.render_report(
+        [a_scored_result(scores={"cobertura": 0.5})], skipped=0, price=None
+    )
+    assert "cobertura: 0.5000 (n=1)" in rendered
+    assert "calculadora_usada: sem tarefa que exija (n=0)" in rendered

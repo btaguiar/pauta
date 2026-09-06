@@ -42,7 +42,10 @@ EventType = Literal[
 ]
 
 LOGGER_NAME = "pauta"
-_PAYLOAD_KEY = "pauta"
+
+#: Sob que atributo do LogRecord os campos do evento viajam. Quem lê o stream de
+#: eventos, como o eval, precisa do mesmo nome que quem escreve.
+PAYLOAD_KEY = "pauta"
 
 #: Valor do campo quando a run não tem thread, o que só acontece fora do grafo.
 UNKNOWN_THREAD = "desconhecida"
@@ -63,7 +66,7 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
-        extra = getattr(record, _PAYLOAD_KEY, None)
+        extra = getattr(record, PAYLOAD_KEY, None)
         if isinstance(extra, dict):
             payload.update(extra)
         if record.exc_info:
@@ -91,7 +94,7 @@ def get_logger() -> logging.Logger:
 def emit(event: EventType, **fields: Any) -> None:
     """Emite um evento estruturado. `fields` vira chave de primeiro nível no JSON."""
     level = logging.ERROR if event == "error" else logging.INFO
-    get_logger().log(level, event, extra={_PAYLOAD_KEY: {"event": event, **fields}})
+    get_logger().log(level, event, extra={PAYLOAD_KEY: {"event": event, **fields}})
 
 
 @dataclass
