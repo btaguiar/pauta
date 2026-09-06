@@ -18,17 +18,14 @@ from pathlib import Path
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import BaseTool
 from pydantic import ValidationError
 
+from pauta import tools
 from pauta.config import get_settings
 from pauta.graph.builder import build_graph
 from pauta.graph.state import new_state
-from pauta.memory.checkpointer import run_async
+from pauta.memory.checkpointer import memory_checkpointer, run_async
 from pauta.observability import setup_logging
-from pauta.tools.calculator import get_calculator_tool
-from pauta.tools.retriever import get_retriever_tool, load_documents
-from pauta.tools.web_search import get_web_search_tool
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_TASKS = REPO_ROOT / "eval" / "tasks.jsonl"
@@ -62,8 +59,7 @@ def load_tasks(path: Path) -> list[dict[str, Any]]:
 
 def corpus_is_empty() -> bool:
     """Vazio é não ter documento indexável, não apenas não ter arquivo."""
-    documents, _ = load_documents(SAMPLES_DIR)
-    return not documents
+    return tools.corpus_is_empty(SAMPLES_DIR)
 
 
 def select_tasks(
@@ -85,20 +81,14 @@ def select_tasks(
 
 async def run_task(task: dict[str, Any], *, index: int) -> TaskResult:
     settings = get_settings()
-    research_tools: list[BaseTool] = []
-    if settings.TAVILY_API_KEY:
-        research_tools.append(get_web_search_tool())
-    if not corpus_is_empty():
-        research_tools.append(get_retriever_tool())
-
-    analyst_tools: list[BaseTool] = [get_calculator_tool()]
-    if not corpus_is_empty():
-        analyst_tools.append(get_retriever_tool())
-
     graph = build_graph(
-        research_tools=research_tools,
-        analyst_tools=analyst_tools,
+        research_tools=tools.research_tools(settings),
+        analyst_tools=tools.analyst_tools(),
         settings=settings,
+        # Em memória, e de propósito: o eval roda dezenas de tarefas descartáveis
+        # e não deve encher o banco de checkpoint que a operação usa. A escolha
+        # fica escrita aqui em vez de vir do default de `build_graph`.
+        checkpointer=memory_checkpointer(),
     )
     run_id = f"eval-{task['id']}"
     config: RunnableConfig = {"configurable": {"thread_id": f"{run_id}-{index}"}}
