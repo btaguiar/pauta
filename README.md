@@ -7,57 +7,133 @@ Multi-agent analytical briefings with LangGraph: dynamic supervision,
 a bounded critic loop, human-in-the-loop interrupts and a token budget.
 ```
 
-*Pauta* is the Brazilian newsroom word for an assignment brief: the question, the
-sources to check, and who reviews it. That is what this system produces.
+Perguntas analíticas não cabem numa cadeia linear. "Vale a pena migrar de API por
+token para GPU dedicada?" precisa de busca, de conta, de alguém conferindo o que
+foi reunido, e de um texto que diga o que não deu para validar.
 
-## Status
+O Pauta decompõe a pergunta, delega cada etapa a um agente especializado, valida
+o resultado com um crítico e redige um briefing com a fonte em cada afirmação.
+*Pauta* é a palavra de redação brasileira para essa encomenda: a pergunta, as
+fontes a checar, e quem revisa.
 
-Em construção. O grafo roda de ponta a ponta, a persistência está provada e
-existe um comando para pedir um briefing. O que falta é número medido.
+## A prova: a run sobrevive à morte do processo
 
-O que já está de pé:
+O que a maioria dos repositórios de agente chama de "execução durável" é testado
+com um checkpointer em memória, que morre junto com o processo e não prova nada.
 
-- 5 nós, um nível de supervisão. O supervisor decide por output estruturado, o
-  código corrige a decisão dele, e uma rota determinística assume quando o parse
-  falha.
-- Crítico com limite de refações, que aponta lacunas e não reescreve a resposta.
-- Retomada por `thread_id` sobre checkpointer de Postgres. Um teste mata o
-  processo no meio da run e prova que ela continua de onde parou. Esse teste roda
-  no CI, contra um Postgres de verdade, em todo push.
-- Interrupt antes da redação com `HITL_MODE=interrupt`, e retomada com feedback
-  do revisor.
-- Orçamento de tokens em duas camadas, entre nós e dentro do nó.
-- Avaliação que lê os rótulos das 26 tarefas do golden set, repete cada tarefa,
-  reporta o desvio entre repetições e grava um JSON por rodada com o commit no
-  nome. Método e limitações em [EVALUATION.md](EVALUATION.md).
-- 284 testes. `ruff` e `mypy --strict` limpos sobre `src`, `tests` e `eval`.
+Aqui um teste sobe um processo filho de verdade, espera ele chegar ao writer,
+manda `kill()` sem handler nenhum, e então, em processo novo, lê o checkpoint no
+Postgres:
+
+```python
+assert snapshot.values["task"] == "sobreviver ao kill"
+assert [f.content for f in snapshot.values["findings"]] == ["descoberta antes da morte"]
+assert snapshot.values["critiques"][0].verdict == "ok"
+assert snapshot.values.get("final_report") is None   # o writer não terminou
+assert snapshot.next == ("writer",)                  # e é de lá que ele retoma
+```
+
+Depois retoma pelo mesmo `thread_id` e conclui o briefing.
+
+Está em [tests/test_durability_kill.py](tests/test_durability_kill.py), com o
+drain cooperativo ao lado em [tests/test_durability.py](tests/test_durability.py).
+O job `durabilidade` do [CI](.github/workflows/ci.yml) sobe um Postgres de
+verdade e roda os dois em todo push, sem condicional: prova que só roda quando
+alguém lembra não é prova.
+
+Pela linha de comando, o mesmo mecanismo é `--list` e `--resume`.
+
+> Falta aqui um GIF de 20 segundos mostrando isso ao vivo. Ele depende de uma
+> execução real, e nenhuma combinação de modelos foi escolhida ainda.
+
+## Números
+
+Não há nenhum, e isso é declarado de propósito.
+
+A avaliação está construída: 26 tarefas rotuladas à mão, cinco métricas
+determinísticas que leem esses rótulos, três repetições por tarefa com o desvio
+reportado, um juiz binário travado por Kappa de Cohen, e um JSON por rodada com
+o SHA do commit no nome. O que não existe é resultado, porque `MODEL_WORKER`,
+`MODEL_ROUTER` e `MODEL_CRITIC` ainda não foram escolhidos.
+
+O método, as definições e as limitações estão em
+[EVALUATION.md](EVALUATION.md). Quando houver número, ele vem de execução real,
+com data, commit e `n`.
+
+## O grafo
+
+```mermaid
+flowchart TB
+    U([pergunta]) --> S
+    S[supervisor<br/>decide o próximo passo] -->|research| R
+    S -->|analyst| A
+    S -->|critic| C
+    S -->|writer| I
+    S -->|END| E
+    R[research<br/>web_search + retriever] --> S
+    A[analyst<br/>calculator + retriever] --> S
+    C[critic<br/>valida · aponta lacunas] --> S
+    I{{interrupt_before<br/>só com HITL_MODE=interrupt}} --> W
+    W[writer<br/>redige o briefing] --> E((END))
+    S -. estado por thread .-> PG[(PostgreSQL<br/>checkpointer + pgvector)]
+```
+
+Cinco nós, um nível de supervisão. O supervisor decide por output estruturado, e
+o código corrige a decisão dele antes de aplicá-la. As sete ADRs estão em
+[ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Decisões que custaram alguma coisa
+
+| decisão | por quê |
+|---|---|
+| Predicado de retry próprio, em vez do padrão | O `default_retry_on` do LangGraph retenta 5xx e recusa `ValueError`, mas não retenta 429. Rate limit precisa ser retentado e erro de schema não. [builder.py:31](src/pauta/graph/builder.py#L31) |
+| Orçamento de tokens em duas camadas | Checar o contador só entre nós deixava a run passar de 60k, porque um nó de pesquisa gasta dezenas de milhares de uma vez. A checagem também acontece dentro do nó, entre rodadas de tool. [budget.py](src/pauta/graph/budget.py) |
+| O LLM propõe a rota, o código dispõe | Limites impostos antes de consultar o modelo, regras reaplicadas depois da resposta, e rota determinística quando o parse falha duas vezes. [routing.py:47](src/pauta/graph/routing.py#L47) |
+| Crítico que não responde reprova | Sem veredito, o material segue como não validado e a ressalva vai no briefing. Aprovar por omissão é o modo de falha que a ADR 002 existe para pegar. [critic.py:83](src/pauta/agents/critic.py#L83) |
+| Um nível de supervisão, não hierarquia | Subgrafo e supervisor de supervisor só entram com justificativa medida no eval. ADR 001 |
+| Nenhum modelo no código | Todo LLM sai de `get_model(role)`, inclusive o juiz do eval. Trocar de provider é editar o `.env`. ADR 007 |
+| Qual combinação de modelos | **Pendente.** O instrumento existe em `eval/matrix.py`; a medição não foi feita. |
+
+## Limitações conhecidas
+
+- Nenhum número de qualidade foi medido. Ver a seção acima.
+- O juiz de fidelidade está calibrado apenas contra 8 casos construídos para
+  serem inequívocos. Um conjunto sem caso difícil superestima a concordância.
+- `incerteza_sinalizada` é casamento de marcador de texto, não compreensão.
+- O corpus tem 6 documentos e 22 chunks. Pequeno demais para generalizar.
+- Sem API HTTP e sem Dockerfile da aplicação. O compose sobe só o Postgres.
+- A busca web depende da Tavily. Sem `TAVILY_API_KEY`, o research fica só com o
+  corpus local.
 
 ## Rodar
 
 ```
-cp .env.example .env      # preencha MODEL_WORKER, MODEL_ROUTER, MODEL_CRITIC
+cp .env.example .env      # preencha OPENROUTER_API_KEY e os três MODEL_*
 docker compose up -d
+uv sync
+
 uv run python -m pauta "vale a pena migrar de API por token para GPU dedicada?"
 ```
 
-A run é durável por padrão. Se o processo cair, `python -m pauta --list` mostra
-o `thread_id` e `python -m pauta --resume THREAD_ID` continua de onde parou. Com
-`HITL_MODE=interrupt` o grafo congela antes da redação e espera aprovação, que
-chega pelo mesmo `--resume`, com `--feedback` opcional.
+A run é durável por padrão: checkpoint e ponteiro vão para o Postgres. Se o
+processo cair no meio:
 
-## O que ainda não existe
+```
+uv run python -m pauta --list                 # mostra o thread_id de cada run
+uv run python -m pauta --resume THREAD_ID     # continua de onde parou
+```
 
-Dito aqui antes que você procure:
+Com `HITL_MODE=interrupt` o grafo congela antes da redação e espera aprovação,
+que chega pelo mesmo `--resume`, com `--feedback "foque no custo de saída"`
+opcional. Para experimentar sem Postgres, `--ephemeral`.
 
-- Nenhuma combinação de modelos foi medida, então o repositório não publica
-  número de qualidade nenhum. `MODEL_WORKER`, `MODEL_ROUTER` e `MODEL_CRITIC`
-  não têm valor padrão no código, de propósito.
-- O juiz de fidelidade existe e está calibrado apenas contra casos construídos.
-  Enquanto isso, nenhum número dele vale.
-- Sem API HTTP e sem Dockerfile da aplicação. O compose sobe o Postgres.
+Avaliação:
 
-As decisões de arquitetura e as sete ADRs estão em
-[ARCHITECTURE.md](ARCHITECTURE.md).
+```
+uv run python eval/run_eval.py --limit 5 --repeats 1
+uv run python eval/calibrate_judge.py
+uv run python eval/matrix.py
+```
 
 ## Corpus de exemplo
 
