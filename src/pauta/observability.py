@@ -5,6 +5,13 @@ quando a API existir (semana 3). Nada de `print` em lugar nenhum.
 
 Os tipos de evento são os do contrato da API, mais `node_end`, que carrega o
 `latency_ms` de cada nó.
+
+Quem liga a saída é o ponto de entrada, nunca a biblioteca. Importar `pauta` só
+instala um `NullHandler`; `setup_logging` é chamado pelo runner do eval, pela app
+e pelos testes. Sem handler nenhum o `logging` recorre ao `lastResort` e escreve
+o nome do evento cru em stderr, fora do contrato JSON, enquanto tudo que é INFO
+desaparece em silêncio. É a mesma regra que `memory.checkpointer` segue para o
+event loop: biblioteca não mexe em estado global do processo.
 """
 
 import json
@@ -39,6 +46,11 @@ _PAYLOAD_KEY = "pauta"
 
 #: Valor do campo quando a run não tem thread, o que só acontece fora do grafo.
 UNKNOWN_THREAD = "desconhecida"
+
+# Handler neutro, instalado no import. Existe para o `lastResort` do logging
+# nunca disparar: quem escolhe destino e formato é o ponto de entrada, chamando
+# `setup_logging`, que substitui este handler.
+logging.getLogger(LOGGER_NAME).addHandler(logging.NullHandler())
 
 
 class JsonFormatter(logging.Formatter):

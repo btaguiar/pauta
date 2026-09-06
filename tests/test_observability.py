@@ -1,6 +1,8 @@
 import io
 import json
 import logging
+import subprocess
+import sys
 from typing import Any
 
 import pytest
@@ -10,6 +12,7 @@ from pauta.agents.supervisor import Router
 from pauta.graph.builder import build_graph
 from pauta.graph.state import new_state
 from pauta.observability import (
+    LOGGER_NAME,
     UNKNOWN_THREAD,
     configure_tracing,
     current_thread_id,
@@ -125,3 +128,35 @@ async def test_the_span_reads_the_thread_id_from_the_run(captured: io.StringIO) 
     for record in ends:
         assert record["thread_id"] == "thread-xyz"
         assert record["run_id"] == "run-abc"
+
+
+def in_a_fresh_process(code: str) -> subprocess.CompletedProcess[str]:
+    """O estado do `logging` é global. Só um processo novo mostra o que o import faz."""
+    return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+
+
+def test_importing_the_library_installs_a_null_handler() -> None:
+    result = in_a_fresh_process(
+        "import logging;"
+        "from pauta.observability import LOGGER_NAME;"
+        "handlers = logging.getLogger(LOGGER_NAME).handlers;"
+        "print(any(isinstance(h, logging.NullHandler) for h in handlers))"
+    )
+    assert result.stdout.strip() == "True"
+
+
+def test_an_event_without_setup_logging_writes_nothing() -> None:
+    """Sem o handler neutro, o `lastResort` imprimiria o nome do evento cru em stderr."""
+    result = in_a_fresh_process(
+        "from pauta.observability import emit; emit('error', run_id='r1', error='tool falhou')"
+    )
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
+def test_setup_logging_takes_the_null_handler_out(captured: io.StringIO) -> None:
+    """Configurado o destino, o handler neutro sai de cena e o JSON sai de verdade."""
+    handlers = logging.getLogger(LOGGER_NAME).handlers
+    assert not any(isinstance(handler, logging.NullHandler) for handler in handlers)
+    emit("finding", run_id="r1", node="research", source="https://exemplo")
+    assert lines(captured)[0]["event"] == "finding"
