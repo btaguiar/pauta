@@ -85,6 +85,14 @@ async def resume_run(
     if run.is_terminal:
         raise RunAlreadyFinished(f"a run {run.run_id} já está {run.status!r} e não retoma")
 
+    if run.status == "running":
+        # Uma run gravada como `running` que alguém pede para retomar é uma run
+        # cujo executor morreu: é o que a morte suja deixa no ponteiro. A máquina
+        # de estados não vai de `running` para `running`, e passar por `orphaned`
+        # é o caminho que a ADR 006 desenhou para exatamente este caso.
+        run = run.transition_to("orphaned")
+        await store.save(run)
+
     running = run.transition_to("running")
     await store.save(running)
     emit(

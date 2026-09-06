@@ -30,9 +30,9 @@ def an_outcome(*, waiting: bool, report: str | None = "Briefing pronto.") -> Run
     return RunOutcome(run=run, report=report, waiting_for_human=waiting)
 
 
-def test_the_task_is_required() -> None:
-    with pytest.raises(SystemExit):
-        build_parser().parse_args([])
+def test_the_parser_accepts_no_task_because_two_modes_have_none() -> None:
+    """`--resume` e `--list` rodam sem pergunta. Quem recusa o vazio é o `mode_of`."""
+    assert build_parser().parse_args([]).task is None
 
 
 def test_a_run_is_durable_unless_asked_otherwise() -> None:

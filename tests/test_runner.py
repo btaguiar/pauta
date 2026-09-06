@@ -163,3 +163,13 @@ async def test_a_finished_run_does_not_resume(store: InMemoryRunStore) -> None:
     )
     with pytest.raises(RunAlreadyFinished):
         await resume_run("t1", graph=a_graph(), store=store)
+
+
+async def test_a_run_killed_mid_flight_still_resumes(store: InMemoryRunStore) -> None:
+    """A morte suja deixa o ponteiro em `running`, e daí ele precisa voltar."""
+    graph = a_graph("interrupt")
+    started = await start_run("t", graph=graph, store=store)
+    await store.save(started.run.model_copy(update={"status": "running"}))
+
+    resumed = await resume_run(started.run.thread_id, graph=graph, store=store)
+    assert resumed.run.status == "completed"
