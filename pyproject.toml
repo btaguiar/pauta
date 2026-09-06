@@ -18,6 +18,9 @@ dependencies = [
     "pydantic-settings>=2.15,<3",
 ]
 
+[project.scripts]
+pauta = "pauta.__main__:main"
+
 [dependency-groups]
 dev = [
     "pytest>=9.1.1,<10",

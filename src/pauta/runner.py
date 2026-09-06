@@ -1,0 +1,145 @@
+"""Executa uma run do começo ao fim e mantém o ponteiro dela atualizado.
+
+O grafo sabe rodar, o checkpointer sabe guardar estado, o store sabe guardar o
+ponteiro. Este módulo costura os três, para o ponto de entrada cuidar só de
+argumento de linha de comando.
+
+O `thread_id` nasce aqui, uma vez por run, e é o que o `--resume` recebe depois.
+"""
+
+import uuid
+from dataclasses import dataclass
+from typing import Any
+
+from langchain_core.runnables import RunnableConfig
+from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Command
+
+from .graph.state import AgentState, new_state
+from .memory.run_store import RunStore
+from .memory.runs import Run
+from .observability import emit
+
+Graph = CompiledStateGraph[AgentState, Any, Any, Any]
+
+
+class RunNotFound(LookupError):
+    """Nenhuma run registrada com esse `thread_id`."""
+
+
+class RunAlreadyFinished(ValueError):
+    """A run chegou a um estado terminal e não retoma."""
+
+
+@dataclass(frozen=True)
+class RunOutcome:
+    """O que a execução deixou. `waiting_for_human` é o interrupt do HITL."""
+
+    run: Run
+    report: str | None
+    waiting_for_human: bool
+
+
+def new_ids() -> tuple[str, str]:
+    """Um par `run_id`, `thread_id` para uma run nova.
+
+    São dois porque medem coisas diferentes: o `run_id` identifica a tentativa
+    nos logs, o `thread_id` identifica a linha de checkpoint que sobrevive ao
+    processo. Uma retomada reusa o `thread_id` e continua a mesma run.
+    """
+    token = uuid.uuid4().hex[:12]
+    return f"run-{token}", f"thread-{token}"
+
+
+async def start_run(
+    task: str,
+    *,
+    graph: Graph,
+    store: RunStore,
+    run_id: str | None = None,
+    thread_id: str | None = None,
+) -> RunOutcome:
+    """Registra uma run nova e a executa até o fim ou até o interrupt."""
+    generated_run_id, generated_thread_id = new_ids()
+    run = Run(
+        run_id=run_id or generated_run_id,
+        thread_id=thread_id or generated_thread_id,
+        task=task,
+    )
+    await store.save(run)
+    emit("node_start", node="runner", run_id=run.run_id, thread_id=run.thread_id, task=task)
+    return await _drive(run, new_state(task=task, run_id=run.run_id), graph=graph, store=store)
+
+
+async def resume_run(
+    thread_id: str,
+    *,
+    graph: Graph,
+    store: RunStore,
+    feedback: str | None = None,
+) -> RunOutcome:
+    """Retoma uma run congelada ou órfã. Nunca acontece sozinho (ADR 006)."""
+    run = await store.by_thread(thread_id)
+    if run is None:
+        raise RunNotFound(f"nenhuma run registrada com thread_id {thread_id!r}")
+    if run.is_terminal:
+        raise RunAlreadyFinished(f"a run {run.run_id} já está {run.status!r} e não retoma")
+
+    running = run.transition_to("running")
+    await store.save(running)
+    emit(
+        "node_start",
+        node="runner",
+        run_id=running.run_id,
+        thread_id=thread_id,
+        resumed_from=run.status,
+        with_feedback=feedback is not None,
+    )
+    payload: Any = Command(update={"hitl_feedback": feedback}) if feedback else None
+    return await _drive(running, payload, graph=graph, store=store)
+
+
+async def _drive(run: Run, payload: Any, *, graph: Graph, store: RunStore) -> RunOutcome:
+    """Roda o grafo e grava o desfecho, qualquer que ele seja.
+
+    Falha vira run `failed` no registro antes de propagar. Uma run que morre sem
+    deixar rastro no ponteiro é o modo de falha que este módulo existe para
+    evitar.
+    """
+    config: RunnableConfig = {"configurable": {"thread_id": run.thread_id}}
+    try:
+        final = await graph.ainvoke(payload, config=config)
+    except Exception as exc:
+        failed = run.model_copy(update={"error": f"{type(exc).__name__}: {exc}"})
+        await store.save(failed.transition_to("failed"))
+        emit(
+            "error",
+            node="runner",
+            run_id=run.run_id,
+            thread_id=run.thread_id,
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        raise
+
+    snapshot = await graph.aget_state(config)
+    waiting = bool(snapshot.next)
+    report = final.get("final_report")
+    finished = run.model_copy(
+        update={
+            "final_report": report,
+            "tokens_used": final.get("tokens_used", 0),
+            "iterations": final.get("iteration", 0),
+        }
+    ).transition_to("interrupted" if waiting else "completed")
+    await store.save(finished)
+    emit(
+        "node_end",
+        node="runner",
+        run_id=finished.run_id,
+        thread_id=finished.thread_id,
+        status=finished.status,
+        tokens_used=finished.tokens_used,
+        iteration=finished.iterations,
+    )
+    return RunOutcome(run=finished, report=report, waiting_for_human=waiting)
