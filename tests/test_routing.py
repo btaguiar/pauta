@@ -84,3 +84,39 @@ def test_end_without_report_becomes_writer(settings: Settings) -> None:
 
 def test_valid_route_passes_through(settings: Settings) -> None:
     assert enforce_rules(state_with(), "research", settings) == "research"
+
+
+def capped(settings: Settings, loops: int) -> Settings:
+    return settings.model_copy(update={"MAX_CRITIC_LOOPS": loops})
+
+
+def test_a_zero_loop_limit_turns_the_critic_off(settings: Settings) -> None:
+    """O `ge=0` da configuração promete que zero desliga o crítico."""
+    state = state_with(findings=[Finding(content="a", source="s", agent="research")])
+    assert enforce_rules(state, "writer", capped(settings, 0)) == "writer"
+
+
+def test_the_first_loop_still_runs_when_the_limit_is_one(settings: Settings) -> None:
+    state = state_with(findings=[Finding(content="a", source="s", agent="research")])
+    assert enforce_rules(state, "writer", capped(settings, 1)) == "critic"
+
+
+def test_the_second_loop_is_refused_when_the_limit_is_one(settings: Settings) -> None:
+    state = state_with(
+        findings=[Finding(content="a", source="s", agent="research")],
+        critiques=[Critique(verdict="refinar")],
+        critic_loops=1,
+    )
+    assert enforce_rules(state, "critic", capped(settings, 1)) == "writer"
+
+
+@pytest.mark.parametrize("limit", [0, 1, 2])
+def test_the_exhausted_critic_is_never_proposed_again(settings: Settings, limit: int) -> None:
+    """Esgotado o limite, nenhuma regra devolve o crítico, venha de onde vier a proposta."""
+    resolved = capped(settings, limit)
+    state = state_with(
+        findings=[Finding(content="a", source="s", agent="research")],
+        critic_loops=limit,
+    )
+    assert enforce_rules(state, "writer", resolved) != "critic"
+    assert enforce_rules(state, "critic", resolved) != "critic"

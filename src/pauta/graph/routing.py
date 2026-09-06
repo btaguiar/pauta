@@ -52,7 +52,9 @@ def enforce_rules(
 ) -> NextStep:
     """Aplica as regras do prompt do supervisor em código, não na confiança.
 
-    Regra 1: nunca writer sem o critic ter rodado.
+    Regra 1: nunca writer sem o critic ter rodado. A regra cede ao limite de
+    refações em vez de atropelá-lo, então `MAX_CRITIC_LOOPS=0` desliga o crítico,
+    que é o que o `ge=0` da configuração promete.
     Regra 2: o critic recusou até o limite, writer com as ressalvas.
     Regra 3: rota para nó que não existe no grafo montado vira writer.
     Regra 4: writer sem nenhuma descoberta volta para research. Redigir sobre
@@ -65,7 +67,7 @@ def enforce_rules(
     if proposed == "writer" and not state.get("findings") and "research" in available:
         return "research"
     if "critic" in available and proposed == "writer" and not state.get("critiques"):
-        return "critic"
+        proposed = "critic"
     if proposed == "critic" and critic_loops_exhausted(state, settings):
         return "writer"
     if proposed == "END" and not state.get("final_report"):
