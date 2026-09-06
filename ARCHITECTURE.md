@@ -16,24 +16,24 @@ flowchart TB
         S[supervisor<br/>roteia o próximo agente] -->|research| R
         S -->|analyst| A
         S -->|critic| C
-        S -->|writer| W
+        S -->|writer| I
         R[research<br/>web_search + retriever] --> S
         A[analyst<br/>calculator + retriever] --> S
         C[critic<br/>valida · aponta lacunas] --> S
-        W[writer<br/>redige o briefing] --> I
+        S -->|END| E
+        I{{interrupt_before<br/>só com HITL_MODE=interrupt}} -->|aprova ou retoma com feedback| W
+        W[writer<br/>redige o briefing] --> E((END))
     end
 
     S -. estado por thread .-> PG[(PostgreSQL<br/>checkpointer + pgvector)]
-    W --> I{interrupt<br/>human-in-the-loop}
-    I -->|approve| E((END))
-    I -. resume com feedback .-> S
     S -. eventos tipados .-> API[FastAPI · SSE stream]
 ```
 
 O supervisor decide o próximo passo a cada ciclo. O crítico pode devolver o
 trabalho para research ou analyst apontando a lacuna. O writer só roda depois de
-crítico aprovado, ou do limite de iterações, ou do estouro de orçamento. Antes do
-END, um interrupt congela o grafo e espera o humano.
+crítico aprovado, ou do limite de iterações, ou do estouro de orçamento. Com
+`HITL_MODE=interrupt`, o grafo congela antes do writer e espera o humano. O
+feedback do revisor entra no prompt da redação.
 
 ## Decisões
 
