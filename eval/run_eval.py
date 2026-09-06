@@ -28,6 +28,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
+from judge import get_judge, judge_report
 from pauta import tools
 from pauta.config import Settings, get_settings
 from pauta.graph.builder import build_graph
@@ -68,6 +69,8 @@ class TaskResult:
     error: str | None = None
     repeat: int = 0
     tools_called: list[str] = field(default_factory=list)
+    findings_detail: list[str] = field(default_factory=list)
+    sustentado: bool | None = None
     scores: dict[str, float | bool | None] = field(default_factory=dict)
 
     def cost_usd(self, price_per_mtok: float | None) -> float | None:
@@ -173,7 +176,8 @@ async def run_task(task: dict[str, Any], *, index: int, repeat: int = 0) -> Task
         called = events.tools_called()
 
     report = final.get("final_report") or ""
-    findings = len(final.get("findings", []))
+    collected = final.get("findings", [])
+    findings = len(collected)
     iterations = final.get("iteration", 0)
     return TaskResult(
         task_id=task["id"],
@@ -185,6 +189,7 @@ async def run_task(task: dict[str, Any], *, index: int, repeat: int = 0) -> Task
         latency_s=round(time.perf_counter() - started, 2),
         repeat=repeat,
         tools_called=called,
+        findings_detail=[f"{item.content} (fonte: {item.source})" for item in collected],
         scores=score_task(
             task,
             report=report,
@@ -264,6 +269,14 @@ def render_report(results: list[TaskResult], skipped: int, price: float | None) 
             )
         else:
             lines.append(f"  {key}: {metrics[key]:.4f} (n={denominator}, uma execução por tarefa)")
+
+    if metrics["fidelidade_n"]:
+        lines += [
+            "",
+            f"fidelidade ao material, pelo juiz: {metrics['fidelidade']:.4f} "
+            f"(n={metrics['fidelidade_n']})",
+            "  este número só vale depois de `python eval/calibrate_judge.py` passar do piso",
+        ]
     return "\n".join(lines)
 
 
@@ -319,6 +332,26 @@ def percentile(values: Sequence[float], fraction: float) -> float:
     return round(ordered[low] + (ordered[high] - ordered[low]) * (position - low), 3)
 
 
+async def judge_results(results: Sequence[TaskResult]) -> None:
+    """Julga cada execução que chegou a produzir briefing.
+
+    Uma chamada de modelo por execução, e por isso está atrás de `--judge`.
+    Execução que falhou ou não redigiu nada não é julgada: `None` fica como
+    "não julgado", que não é o mesmo que "não sustentado".
+    """
+    model = get_judge()
+    for result in results:
+        if result.error or not result.report:
+            continue
+        verdict = await judge_report(
+            result.report,
+            result.findings_detail,
+            model=model,
+            task_id=result.task_id,
+        )
+        result.sustentado = verdict.sustentado if verdict else None
+
+
 def by_task(results: Sequence[TaskResult]) -> dict[str, list[TaskResult]]:
     """Agrupa as repetições da mesma tarefa, na ordem em que apareceram."""
     grouped: dict[str, list[TaskResult]] = {}
@@ -345,6 +378,14 @@ def metrics_of(
         task_id: [run.scores for run in runs if run.scores] for task_id, runs in grouped.items()
     }
     per_task = [collapse_repeats(repeats) for repeats in scored.values() if repeats]
+    # Fidelidade segue a mesma regra dos rótulos: colapsa por tarefa antes da
+    # média geral, e execução não julgada fica de fora em vez de contar como
+    # reprovada.
+    fidelity = [
+        mean([float(run.sustentado) for run in runs if run.sustentado is not None])
+        for runs in grouped.values()
+        if any(run.sustentado is not None for run in runs)
+    ]
     return {
         "total_tarefas": len(grouped),
         "execucoes": len(results),
@@ -353,6 +394,8 @@ def metrics_of(
         "puladas_sem_corpus": skipped,
         **aggregate(per_task),
         **repeat_deviation(scored),
+        "fidelidade": round(mean(fidelity), 4) if fidelity else 0.0,
+        "fidelidade_n": len(fidelity),
         "tokens_total": total_tokens,
         "tokens_media": round(mean(tokens), 1) if tokens else 0.0,
         "tokens_media_n": len(tokens),
@@ -436,6 +479,11 @@ async def main_async(args: argparse.Namespace) -> int:
         for repeat in range(args.repeats)
         for i, task in enumerate(selected)
     ]
+    if args.judge:
+        if not settings.JUDGE_MODEL:
+            sys.stderr.write("--judge pedido sem JUDGE_MODEL no .env; nada foi julgado\n")
+            return 2
+        await judge_results(results)
     sys.stdout.write(render_report(results, skipped, settings.COST_PER_MTOK_USD) + "\n")
 
     written = write_results(
@@ -458,6 +506,11 @@ def main() -> int:
         type=int,
         default=DEFAULT_REPEATS,
         help=f"execuções por tarefa (padrão {DEFAULT_REPEATS}); menos que 2 não dá desvio",
+    )
+    parser.add_argument(
+        "--judge",
+        action="store_true",
+        help="julga a fidelidade de cada briefing com JUDGE_MODEL; custa uma chamada por execução",
     )
     return int(run_async(main_async(parser.parse_args())))
 

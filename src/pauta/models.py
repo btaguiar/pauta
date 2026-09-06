@@ -8,16 +8,19 @@ from langchain_core.language_models import BaseChatModel
 
 from .config import get_settings
 
-Role = Literal["supervisor", "research", "analyst", "critic", "writer"]
+Role = Literal["supervisor", "research", "analyst", "critic", "writer", "judge"]
 
 #: Qual variável de ambiente atende cada papel. Roteamento e crítica degradam
 #: muito em modelo pequeno; pesquisa e redação não exigem raciocínio profundo.
+#: O juiz do eval é papel como os outros: ele também não instancia cliente por
+#: conta própria, e a metodologia pede que ele seja de outro provider.
 ROLE_ENV: dict[Role, str] = {
     "supervisor": "MODEL_ROUTER",
     "critic": "MODEL_CRITIC",
     "research": "MODEL_WORKER",
     "analyst": "MODEL_WORKER",
     "writer": "MODEL_WORKER",
+    "judge": "JUDGE_MODEL",
 }
 
 
@@ -25,8 +28,9 @@ def model_name_for(role: Role) -> str:
     """Nome do modelo configurado para o papel, direto do ambiente."""
     if role not in ROLE_ENV:
         raise ValueError(f"papel desconhecido: {role!r}; esperados {sorted(ROLE_ENV)}")
-    name = cast(str, getattr(get_settings(), ROLE_ENV[role]))
-    if not name.strip():
+    # `JUDGE_MODEL` é opcional no `Settings`, então aqui pode chegar `None`.
+    name = cast(str | None, getattr(get_settings(), ROLE_ENV[role]))
+    if not name or not name.strip():
         raise ValueError(f"{ROLE_ENV[role]} está vazio; defina no .env antes de rodar o grafo")
     return name
 

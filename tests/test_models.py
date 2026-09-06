@@ -10,10 +10,29 @@ from pauta.models import (
 
 
 def test_every_role_maps_to_an_environment_variable() -> None:
-    assert set(ROLE_ENV) == {"supervisor", "research", "analyst", "critic", "writer"}
+    assert set(ROLE_ENV) == {"supervisor", "research", "analyst", "critic", "writer", "judge"}
     assert ROLE_ENV["supervisor"] == "MODEL_ROUTER"
     assert ROLE_ENV["critic"] == "MODEL_CRITIC"
+    assert ROLE_ENV["judge"] == "JUDGE_MODEL"
     assert ROLE_ENV["research"] == ROLE_ENV["analyst"] == ROLE_ENV["writer"] == "MODEL_WORKER"
+
+
+def test_the_judge_is_a_role_so_it_does_not_build_its_own_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regra 1 do repositório: todo LLM sai de `get_model`, o juiz do eval também."""
+    monkeypatch.setenv("JUDGE_MODEL", "outra-casa/modelo-juiz")
+    from pauta.config import get_settings
+
+    get_settings.cache_clear()
+    reset_model_cache()
+    assert model_name_for("judge") == "outra-casa/modelo-juiz"
+
+
+def test_an_unset_judge_model_fails_with_a_clear_message() -> None:
+    """`JUDGE_MODEL` é opcional no Settings, então aqui pode chegar `None`."""
+    with pytest.raises(ValueError, match="JUDGE_MODEL"):
+        model_name_for("judge")
 
 
 def test_reads_the_name_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
