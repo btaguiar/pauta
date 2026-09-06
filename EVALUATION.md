@@ -1,0 +1,158 @@
+# Avaliação
+
+Como o pauta é medido, o que cada número significa, e o que ainda não foi medido.
+
+Este documento descreve o método. Ele não traz resultados: nenhuma rodada
+completa foi executada até aqui, porque a combinação de modelos ainda não foi
+escolhida. Quando houver número, ele entra aqui com a data, o commit e o `n`.
+
+## O golden set
+
+`eval/tasks.jsonl`, 26 tarefas escritas à mão. Contagem medida, não estimada:
+
+| rótulo | tarefas |
+|---|---|
+| `must_contain` preenchido | 19 |
+| `should_flag_uncertainty` | 11 |
+| `needs_research` | 11 |
+| `needs_calculus` | 10 |
+| `requires_corpus` | 7 |
+| `max_steps` | 26 |
+
+As 11 tarefas com `should_flag_uncertainty` são armadilhas. Elas pedem algo que
+não é conhecível, como o preço da saca de café arábica em 2030. O sucesso nelas
+é recusar ou marcar a incerteza. Responder um número é o erro.
+
+As 7 tarefas com `requires_corpus` dependem do índice sobre `samples/`. Sem
+corpus indexado elas são puladas e contadas como puladas, nunca como falha.
+
+## Métricas determinísticas
+
+Calculadas em `eval/scoring.py`. Nenhuma delas chama modelo.
+
+**`cobertura`.** Fração das substrings de `must_contain` que aparecem no
+briefing. Caixa e acento são normalizados, então `GPU` e `gpu` são a mesma
+exigência. Tarefa sem `must_contain` não entra na média, em vez de entrar
+como zero.
+
+**`incerteza_sinalizada`.** Se o briefing admite não saber, nas tarefas
+marcadas como armadilha. É uma aproximação por marcador de texto, não
+compreensão. Os marcadores saem do prompt do writer, que manda escrever "Não foi
+possível validar X" e abrir uma seção de ressalvas. Mudar aquele prompt exige
+revisar esta lista.
+
+**`calculadora_usada`.** Se a tool `calculator` foi de fato chamada, nas tarefas
+que exigem conta. O dado vem dos eventos `tool_call` que o grafo emite, não do
+estado final. Um finding do analyst prova que ele escreveu algo, não que ele
+calculou.
+
+**`pesquisa_feita`.** Se a run registrou ao menos uma descoberta, nas tarefas
+que exigem pesquisa.
+
+**`dentro_do_teto`.** Se a run terminou dentro do `max_steps` da tarefa.
+
+Toda média vem com o `_n` que a sustenta. Média sem denominador esconde que ela
+veio de duas tarefas.
+
+## Repetições e desvio
+
+Cada tarefa roda três vezes por padrão. Uma execução só não separa melhora de
+ruído.
+
+As repetições de uma tarefa viram um score só antes da média geral. Uma tarefa
+rodada três vezes não pode pesar o triplo de uma rodada uma vez.
+
+O desvio reportado tem uma definição específica, e ela precisa estar escrita:
+para cada tarefa calcula-se o desvio das suas repetições, e o número publicado é
+a média desses desvios entre as tarefas. Lê-se como "quanto o score de uma
+tarefa costuma variar de uma execução para outra". Tarefa rodada uma vez só não
+entra nesse cálculo.
+
+## O juiz
+
+O que não dá para decidir por regra vai para um juiz de LLM, em `eval/judge.py`.
+Ele responde uma pergunta só: toda afirmação factual do briefing está apoiada no
+material que os agentes reuniram?
+
+A escala é binária, sim ou não. Escala de 1 a 5 tem âncora instável entre
+execuções e entre modelos, e a média de notas instáveis parece precisa sem ser.
+
+O juiz vem de `JUDGE_MODEL`, que precisa apontar para um provider diferente do
+executor. Modelo que julga a própria saída se prefere.
+
+Juiz que falha devolve "não julgado", que não é o mesmo que "não sustentado".
+Um juiz fora do ar não é evidência de briefing ruim.
+
+### Calibração, e por que ela decide se o número pode ser publicado
+
+`python eval/calibrate_judge.py` roda o juiz sobre casos rotulados à mão e
+calcula o Kappa de Cohen contra esses rótulos.
+
+Kappa, e não acurácia. Um juiz que responde sim para tudo acerta 90% de um
+conjunto 90% sim sem julgar nada. Kappa desconta essa concordância esperada por
+acaso, e nesse caso devolve zero. Existe teste para exatamente esse cenário.
+
+O piso é 0,60, o "substancial" de Landis e Koch. Abaixo dele o juiz discorda
+demais do humano para o número dele significar alguma coisa, e o relatório diz
+isso em vez de publicar o número.
+
+## Artefatos por rodada
+
+Cada execução grava três arquivos em `eval/results/`, nomeados com timestamp UTC
+e o SHA curto do commit:
+
+- `bruto_*.json`: o que cada execução produziu, briefing incluído.
+- `eval_*.json`: cabeçalho, métricas e itens.
+- `metricas_*.json`: só os números, para plotar evolução por commit sem
+  carregar texto junto.
+
+Todos carregam um bloco `config` com os modelos, a temperatura e os limites do
+grafo. Sem ele dois arquivos de commits diferentes não são comparáveis, porque
+não dá para saber se a diferença veio do código ou de outro modelo. A lista do
+bloco é explícita, nunca um despejo da configuração, para nenhuma chave de API
+chegar a um arquivo que pode ser comitado. Existe teste que verifica isso.
+
+Rodadas locais ficam fora do git. Só o artefato do CI é publicado.
+
+## Como rodar
+
+```
+docker compose up -d
+uv run python eval/run_eval.py --limit 5 --repeats 1     # rodada rápida
+uv run python eval/run_eval.py                           # 26 tarefas, 3 repetições
+uv run python eval/run_eval.py --judge                   # com o juiz
+uv run python eval/calibrate_judge.py                    # calibra o juiz
+```
+
+Exige `.env` preenchido. `MODEL_WORKER`, `MODEL_ROUTER`, `MODEL_CRITIC` e
+`EMBEDDING_MODEL` não têm valor padrão no código, de propósito.
+
+## Limitações declaradas
+
+O que segue não foi resolvido. Está escrito aqui porque um documento de
+avaliação que esconde os próprios limites não serve para nada.
+
+**Nenhum resultado foi produzido ainda.** A combinação de modelos não foi
+escolhida, então não existe rodada completa. Todas as métricas descritas acima
+têm código e teste, e valor medido nenhum.
+
+**O conjunto de calibração do juiz é construído, não amostrado.** São 8 casos,
+4 sustentados e 4 não, escritos para serem inequívocos. Um conjunto sem caso
+difícil superestima a concordância. Antes de publicar qualquer número de
+fidelidade, é preciso acrescentar casos reais tirados de rodadas do eval e
+rotulados à mão.
+
+**`incerteza_sinalizada` é casamento de marcador.** Um briefing que recusa com
+palavras fora da lista conta como erro, e um que usa a palavra "estimativa" no
+sentido errado conta como acerto. O número é um piso, não uma medida de
+compreensão.
+
+**`pesquisa_feita` mede quantidade, não qualidade.** Uma descoberta irrelevante
+com fonte válida passa.
+
+**O corpus é pequeno.** Seis documentos, 22 chunks. As 7 tarefas que dependem
+dele medem recuperação num universo pequeno demais para o número generalizar.
+
+**Não há comparação entre configurações.** O eval roda uma configuração por vez.
+Comparar router barato contra router caro exige rodar duas vezes e comparar os
+JSON à mão.

@@ -36,8 +36,8 @@ O que ainda não existe, dito aqui antes que você procure:
 - Nenhuma combinação de modelos foi medida. `MODEL_WORKER`, `MODEL_ROUTER` e
   `MODEL_CRITIC` estão vazios de propósito, sem default no código.
 
-Quando houver número de qualidade, ele vem de execução real e o `EVALUATION.md`
-diz como foi medido.
+Quando houver número de qualidade, ele vem de execução real. O método já está
+escrito em [EVALUATION.md](EVALUATION.md), com as limitações declaradas.
 
 As decisões de arquitetura e as sete ADRs estão em
 [ARCHITECTURE.md](ARCHITECTURE.md).
