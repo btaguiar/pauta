@@ -25,7 +25,7 @@ O que já está de pé:
 - Interrupt antes da redação com `HITL_MODE=interrupt`, e retomada com feedback
   do revisor.
 - Orçamento de tokens em duas camadas, entre nós e dentro do nó.
-- 181 testes, 4 deles pulados por exigirem Postgres local. `ruff` e `mypy
+- 184 testes, 4 deles pulados por exigirem Postgres local. `ruff` e `mypy
   --strict` limpos sobre `src`, `tests` e `eval`.
 
 O que ainda não existe, dito aqui antes que você procure:
