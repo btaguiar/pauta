@@ -12,19 +12,22 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import subprocess
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
+from statistics import mean
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
 from pauta import tools
-from pauta.config import get_settings
+from pauta.config import Settings, get_settings
 from pauta.graph.builder import build_graph
 from pauta.graph.state import new_state
 from pauta.memory.checkpointer import memory_checkpointer, run_async
@@ -34,6 +37,7 @@ from scoring import SCORE_KEYS, aggregate, score_task
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_TASKS = REPO_ROOT / "eval" / "tasks.jsonl"
 SAMPLES_DIR = REPO_ROOT / "samples"
+RESULTS_DIR = REPO_ROOT / "eval" / "results"
 TOKENS_PER_MILLION = 1_000_000
 
 
@@ -231,6 +235,127 @@ def render_report(results: list[TaskResult], skipped: int, price: float | None) 
     return "\n".join(lines)
 
 
+def commit_hash() -> str:
+    """SHA curto do HEAD. Sem ele dois resultados não se comparam no tempo."""
+    try:
+        finished = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return "sem-git"
+    return finished.stdout.strip() or "sem-git"
+
+
+def config_block(settings: Settings) -> dict[str, Any]:
+    """O que muda o resultado, e só isso.
+
+    A lista é explícita, nunca um despejo do `Settings`: chave de API não entra
+    em artefato que vai para o disco e possivelmente para o repositório. Sem
+    este bloco, dois JSON de commits diferentes não são comparáveis, porque não
+    dá para saber se a diferença veio do código ou de outro modelo.
+    """
+    return {
+        "model_worker": settings.MODEL_WORKER,
+        "model_router": settings.MODEL_ROUTER,
+        "model_critic": settings.MODEL_CRITIC,
+        "embedding_model": settings.EMBEDDING_MODEL,
+        "judge_model": settings.JUDGE_MODEL,
+        "temperature": 0,
+        "max_supervisor_steps": settings.MAX_SUPERVISOR_STEPS,
+        "max_critic_loops": settings.MAX_CRITIC_LOOPS,
+        "budget_tokens_per_run": settings.BUDGET_TOKENS_PER_RUN,
+        "max_tool_rounds": settings.MAX_TOOL_ROUNDS,
+        "retriever_top_k": settings.RETRIEVER_TOP_K,
+        "chunk_size": settings.CHUNK_SIZE,
+        "chunk_overlap": settings.CHUNK_OVERLAP,
+        "hitl_mode": settings.HITL_MODE,
+    }
+
+
+def percentile(values: Sequence[float], fraction: float) -> float:
+    """Percentil por interpolação linear. Sem dependência nova para uma conta destas."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    position = (len(ordered) - 1) * fraction
+    low = int(position)
+    high = min(low + 1, len(ordered) - 1)
+    return round(ordered[low] + (ordered[high] - ordered[low]) * (position - low), 3)
+
+
+def metrics_of(
+    results: Sequence[TaskResult], *, skipped: int, price: float | None
+) -> dict[str, Any]:
+    """As métricas da rodada, cada média acompanhada do seu `_n`."""
+    finished = [result for result in results if not result.error]
+    tokens = [result.tokens_used for result in finished]
+    latencies = [result.latency_s for result in finished]
+    total_tokens = sum(tokens)
+    return {
+        "total_tarefas": len(results),
+        "falhas": sum(1 for result in results if result.error),
+        "puladas_sem_corpus": skipped,
+        **aggregate([result.scores for result in results if result.scores]),
+        "tokens_total": total_tokens,
+        "tokens_media": round(mean(tokens), 1) if tokens else 0.0,
+        "tokens_media_n": len(tokens),
+        "latencia_media_s": round(mean(latencies), 3) if latencies else 0.0,
+        "latencia_p95_s": percentile(latencies, 0.95),
+        "latencia_n": len(latencies),
+        "custo_usd": (
+            round(total_tokens / TOKENS_PER_MILLION * price, 4) if price is not None else None
+        ),
+    }
+
+
+def write_results(
+    results: Sequence[TaskResult],
+    *,
+    skipped: int,
+    settings: Settings,
+    tasks_file: str,
+    limit: int | None,
+) -> list[Path]:
+    """Grava a rodada em três arquivos, como o `grifo` faz.
+
+    `bruto` guarda o que cada tarefa produziu, `eval` junta cabeçalho, métricas e
+    itens, `metricas` fica só com os números, que é o arquivo que alimenta um
+    gráfico de evolução por commit sem carregar briefing nenhum.
+    """
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    commit = commit_hash()
+    header = {
+        "timestamp": stamp,
+        "commit": commit,
+        "tasks_file": Path(tasks_file).name,
+        "limit": limit,
+        "config": config_block(settings),
+    }
+    metrics = metrics_of(results, skipped=skipped, price=settings.COST_PER_MTOK_USD)
+    items = [asdict(result) for result in results]
+
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    for name, payload in (
+        (f"bruto_{stamp}_{commit}.json", {**header, "itens": items}),
+        (f"eval_{stamp}_{commit}.json", {**header, "metricas": metrics, "itens": items}),
+        (f"metricas_{stamp}_{commit}.json", {**header, "metricas": metrics}),
+    ):
+        path = RESULTS_DIR / name
+        # allow_nan=False: NaN é extensão do Python e não é JSON válido. Melhor
+        # falhar na escrita que gravar um arquivo que nenhum leitor abre.
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False),
+            encoding="utf-8",
+        )
+        written.append(path)
+    return written
+
+
 MISSING_CONFIG_MESSAGE = """Falta configuração para rodar o eval.
 
 Copie .env.example para .env e preencha MODEL_WORKER, MODEL_ROUTER, MODEL_CRITIC
@@ -244,7 +369,7 @@ Detalhe do validador:
 async def main_async(args: argparse.Namespace) -> int:
     setup_logging()
     try:
-        get_settings()
+        settings = get_settings()
     except ValidationError as exc:
         sys.stderr.write(MISSING_CONFIG_MESSAGE.format(detail=exc))
         return 2
@@ -254,7 +379,16 @@ async def main_async(args: argparse.Namespace) -> int:
         sys.stdout.write(f"nenhuma tarefa executável; {skipped} puladas por falta de corpus\n")
         return 1
     results = [await run_task(task, index=i) for i, task in enumerate(selected)]
-    sys.stdout.write(render_report(results, skipped, get_settings().COST_PER_MTOK_USD) + "\n")
+    sys.stdout.write(render_report(results, skipped, settings.COST_PER_MTOK_USD) + "\n")
+
+    written = write_results(
+        results,
+        skipped=skipped,
+        settings=settings,
+        tasks_file=args.tasks,
+        limit=args.limit,
+    )
+    sys.stdout.write("\n" + "\n".join(f"gravado: {path}" for path in written) + "\n")
     return 1 if any(r.error for r in results) else 0
 
 
