@@ -81,16 +81,13 @@ def make_supervisor_node(
     async def supervisor(state: AgentState) -> dict[str, Any]:
         run_id = state.get("run_id", "desconhecida")
         iteration = state.get("iteration", 0)
-        with node_span("supervisor", run_id=run_id, thread_id=run_id, iteration=iteration) as span:
+        with node_span("supervisor", run_id=run_id, iteration=iteration) as span:
             imposed = forced_route(state, resolved)
             if imposed is not None:
-                emit(
-                    "node_end",
-                    node="supervisor",
-                    run_id=run_id,
-                    next_agent=imposed,
-                    rationale="limite atingido, rota imposta sem consultar o modelo",
-                )
+                # O `node_end` sai do span ao fechar, com latência e thread_id
+                # junto. Emitir um aqui dobraria o evento e sem os campos todos.
+                span.extra["next_agent"] = imposed
+                span.extra["rationale"] = "limite atingido, rota imposta sem consultar o modelo"
                 return {"next_agent": imposed, "iteration": 1}
 
             messages = [

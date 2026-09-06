@@ -66,7 +66,7 @@ def make_writer_node(
     async def writer(state: AgentState) -> dict[str, Any]:
         run_id = state.get("run_id", "desconhecida")
         iteration = state.get("iteration", 0)
-        with node_span("writer", run_id=run_id, thread_id=run_id, iteration=iteration) as span:
+        with node_span("writer", run_id=run_id, iteration=iteration) as span:
             critiques = state.get("critiques", [])
             approved = bool(critiques) and critiques[-1].verdict == "ok"
             prompt = WRITER_PROMPT if approved else f"{WRITER_PROMPT}\n\n{UNVALIDATED_NOTICE}"

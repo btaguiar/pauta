@@ -95,7 +95,7 @@ def make_research_node(
     async def research(state: AgentState) -> dict[str, Any]:
         run_id = state.get("run_id", "desconhecida")
         iteration = state.get("iteration", 0)
-        with node_span("research", run_id=run_id, thread_id=run_id, iteration=iteration) as span:
+        with node_span("research", run_id=run_id, iteration=iteration) as span:
             gaps = [gap for critique in state.get("critiques", []) for gap in critique.gaps]
             history: list[BaseMessage] = [
                 SystemMessage(RESEARCH_PROMPT),

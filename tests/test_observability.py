@@ -4,8 +4,20 @@ import logging
 from typing import Any
 
 import pytest
+from langgraph.checkpoint.memory import InMemorySaver
 
-from pauta.observability import configure_tracing, emit, node_span, setup_logging
+from pauta.agents.supervisor import Router
+from pauta.graph.builder import build_graph
+from pauta.graph.state import new_state
+from pauta.observability import (
+    UNKNOWN_THREAD,
+    configure_tracing,
+    current_thread_id,
+    emit,
+    node_span,
+    setup_logging,
+)
+from tests.fakes import FakeChatModel, fake_graph_models
 
 
 @pytest.fixture
@@ -89,3 +101,27 @@ def test_tracing_on_with_key(monkeypatch: pytest.MonkeyPatch) -> None:
     import os
 
     assert os.environ["LANGSMITH_PROJECT"] == "pauta"
+
+
+def test_the_thread_id_falls_back_outside_a_run() -> None:
+    """Chamado fora do grafo não há contexto, e o campo não pode explodir por isso."""
+    assert current_thread_id() == UNKNOWN_THREAD
+
+
+async def test_the_span_reads_the_thread_id_from_the_run(captured: io.StringIO) -> None:
+    """O `thread_id` vem do config da run, não do `run_id` copiado."""
+    state = new_state(task="t", run_id="run-abc")
+    state["final_report"] = "pronto"
+    graph = build_graph(
+        **fake_graph_models(
+            supervisor_model=FakeChatModel(responses=[Router(next="END", rationale="pronto")]),
+        ),
+        checkpointer=InMemorySaver(),
+    )
+    await graph.ainvoke(state, config={"configurable": {"thread_id": "thread-xyz"}})
+
+    ends = [record for record in lines(captured) if record["event"] == "node_end"]
+    assert ends, "o supervisor devia ter emitido node_end"
+    for record in ends:
+        assert record["thread_id"] == "thread-xyz"
+        assert record["run_id"] == "run-abc"

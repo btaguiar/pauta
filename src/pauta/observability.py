@@ -17,6 +17,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from langgraph.config import get_config
+
 from .config import get_settings
 
 EventType = Literal[
@@ -34,6 +36,9 @@ EventType = Literal[
 
 LOGGER_NAME = "pauta"
 _PAYLOAD_KEY = "pauta"
+
+#: Valor do campo quando a run não tem thread, o que só acontece fora do grafo.
+UNKNOWN_THREAD = "desconhecida"
 
 
 class JsonFormatter(logging.Formatter):
@@ -99,20 +104,43 @@ class NodeSpan:
         }
 
 
+def current_thread_id(default: str = UNKNOWN_THREAD) -> str:
+    """O `thread_id` da run, lido do contexto de execução do LangGraph.
+
+    O `thread_id` vive no `RunnableConfig`, não no estado, então é daí que ele
+    sai. Fora de uma execução de grafo, como no teste que chama o nó direto, não
+    há contexto e o default vale.
+    """
+    try:
+        configurable = get_config().get("configurable", {})
+    except RuntimeError:
+        return default
+    thread_id = configurable.get("thread_id")
+    return thread_id if isinstance(thread_id, str) and thread_id else default
+
+
 @contextmanager
 def node_span(
     node: str,
     *,
     run_id: str,
-    thread_id: str,
     iteration: int,
+    thread_id: str | None = None,
 ) -> Iterator[NodeSpan]:
     """Emite `node_start`, mede a latência e emite `node_end`.
+
+    Sem `thread_id` explícito, o valor vem do contexto da run. Um nó não precisa
+    saber em que thread está para registrar corretamente em qual thread está.
 
     Se o nó levantar, emite `error` com a latência até a falha e propaga. Falha
     visível é melhor que run travada em silêncio.
     """
-    span = NodeSpan(node=node, run_id=run_id, thread_id=thread_id, iteration=iteration)
+    span = NodeSpan(
+        node=node,
+        run_id=run_id,
+        thread_id=thread_id if thread_id is not None else current_thread_id(),
+        iteration=iteration,
+    )
     emit("node_start", **span.as_fields())
     started = time.perf_counter()
     try:

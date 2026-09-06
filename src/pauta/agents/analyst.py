@@ -115,7 +115,7 @@ def make_analyst_node(
     async def analyst(state: AgentState) -> dict[str, Any]:
         run_id = state.get("run_id", "desconhecida")
         iteration = state.get("iteration", 0)
-        with node_span("analyst", run_id=run_id, thread_id=run_id, iteration=iteration) as span:
+        with node_span("analyst", run_id=run_id, iteration=iteration) as span:
             history: list[BaseMessage] = [
                 SystemMessage(ANALYST_PROMPT),
                 HumanMessage(render_material(state)),

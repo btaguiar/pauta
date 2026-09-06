@@ -60,7 +60,7 @@ def make_critic_node(
     async def critic(state: AgentState) -> dict[str, Any]:
         run_id = state.get("run_id", "desconhecida")
         iteration = state.get("iteration", 0)
-        with node_span("critic", run_id=run_id, thread_id=run_id, iteration=iteration) as span:
+        with node_span("critic", run_id=run_id, iteration=iteration) as span:
             messages = [SystemMessage(CRITIC_PROMPT), HumanMessage(render_material(state))]
             tokens = 0
             verdict: Critique | None = None
