@@ -1,0 +1,40 @@
+{
+  "sobre": "Configurações comparadas por eval/matrix.py. Preencha os ids com o nome completo do gateway, com a casa de origem no nome. Vazio de propósito: nenhum modelo tem default no código (ADR 007). A primeira configuração é a linha de base, e os deltas saem contra ela.",
+  "configuracoes": [
+    {
+      "nome": "tudo-barato",
+      "nota": "linha de base. Se ela empatar com as outras, o modelo caro não se paga.",
+      "MODEL_ROUTER": "",
+      "MODEL_CRITIC": "",
+      "MODEL_WORKER": ""
+    },
+    {
+      "nome": "router-melhor",
+      "nota": "testa se roteamento degrada em modelo pequeno. O codigo ja corrige a decisao do router, entao a hipotese e que nao degrada.",
+      "MODEL_ROUTER": "",
+      "MODEL_CRITIC": "",
+      "MODEL_WORKER": ""
+    },
+    {
+      "nome": "critico-melhor",
+      "nota": "o teste que mais importa. Critico fraco tende a carimbar verdict ok, e ai o loop de critica inteiro vira enfeite (ADR 002).",
+      "MODEL_ROUTER": "",
+      "MODEL_CRITIC": "",
+      "MODEL_WORKER": ""
+    },
+    {
+      "nome": "worker-melhor",
+      "nota": "pesquisa e redacao com modelo melhor, roteamento e critica baratos.",
+      "MODEL_ROUTER": "",
+      "MODEL_CRITIC": "",
+      "MODEL_WORKER": ""
+    },
+    {
+      "nome": "tudo-melhor",
+      "nota": "teto de qualidade e de custo. Serve para saber quanto se perde economizando.",
+      "MODEL_ROUTER": "",
+      "MODEL_CRITIC": "",
+      "MODEL_WORKER": ""
+    }
+  ]
+}

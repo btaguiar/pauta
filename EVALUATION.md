@@ -114,6 +114,31 @@ chegar a um arquivo que pode ser comitado. Existe teste que verifica isso.
 
 Rodadas locais ficam fora do git. Só o artefato do CI é publicado.
 
+## A matriz de modelos
+
+Uma configuração por vez responde "como está". A pergunta cara é outra: vale
+pagar modelo melhor em qual papel?
+
+`eval/matrix.py` roda o mesmo golden set em várias configurações e põe os
+resultados lado a lado, com o delta contra a linha de base. As configurações
+ficam em `eval/matrix.json`, uma por linha, variando um papel de cada vez a
+partir de um piso barato.
+
+Duas hipóteses que a matriz existe para testar:
+
+- Router barato não custa qualidade, porque o código já corrige a decisão do
+  supervisor em `enforce_rules`. Se o delta de `router-melhor` for zero, essa
+  correção se pagou.
+- Crítico barato custa caro, porque crítico fraco tende a carimbar `verdict:
+  ok`. É o modo de falha que a ADR 002 existe para pegar.
+
+O embedding não entra na matriz. Trocá-lo no meio compararia corpus diferentes,
+não modelos diferentes.
+
+O script não escolhe nada. Ele produz o número, e a escolha vira ADR no
+`ARCHITECTURE.md` mais um comentário no `.env.example` dizendo o que a
+justificou.
+
 ## Como rodar
 
 ```
@@ -122,6 +147,7 @@ uv run python eval/run_eval.py --limit 5 --repeats 1     # rodada rápida
 uv run python eval/run_eval.py                           # 26 tarefas, 3 repetições
 uv run python eval/run_eval.py --judge                   # com o juiz
 uv run python eval/calibrate_judge.py                    # calibra o juiz
+uv run python eval/matrix.py --limit 5                   # compara configurações
 ```
 
 Exige `.env` preenchido. `MODEL_WORKER`, `MODEL_ROUTER`, `MODEL_CRITIC` e
@@ -153,6 +179,7 @@ com fonte válida passa.
 **O corpus é pequeno.** Seis documentos, 22 chunks. As 7 tarefas que dependem
 dele medem recuperação num universo pequeno demais para o número generalizar.
 
-**Não há comparação entre configurações.** O eval roda uma configuração por vez.
-Comparar router barato contra router caro exige rodar duas vezes e comparar os
-JSON à mão.
+**A matriz de modelos nunca foi executada.** O instrumento existe e está testado,
+o `eval/matrix.json` está versionado em branco, e nenhuma linha dele foi rodada.
+Enquanto isso, a escolha dos tiers continua em aberto e o repositório não afirma
+nada sobre qual modelo vale em qual papel.
