@@ -2,6 +2,8 @@
 
 import os
 import uuid
+from collections.abc import Iterator
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
@@ -15,6 +17,7 @@ from pauta.tools.retriever import (
     EmptyCorpus,
     chunk_id,
     format_results,
+    get_store,
     index_samples,
     load_documents,
     split_documents,
@@ -38,9 +41,18 @@ def fake_embeddings() -> DeterministicFakeEmbedding:
 
 
 @pytest.fixture
-def collection() -> str:
-    """Coleção própria por teste, para um não enxergar o índice do outro."""
-    return f"pauta_test_{uuid.uuid4().hex[:12]}"
+def collection(settings: Settings) -> Iterator[str]:
+    """Coleção própria por teste, para um não enxergar o índice do outro.
+
+    E apagada no fim. Sem isto, cada suíte completa deixava dezenas de coleções
+    no banco de desenvolvimento, e a que sobra é indistinguível da que importa.
+    """
+    name = f"pauta_test_{uuid.uuid4().hex[:12]}"
+    yield name
+    # Sem Postgres o teste foi pulado e não há o que apagar; a falha aqui não
+    # pode derrubar a suíte que já passou.
+    with suppress(Exception):
+        get_store(settings, embeddings=fake_embeddings(), collection_name=name).delete_collection()
 
 
 @pytest.fixture
@@ -143,8 +155,6 @@ def test_the_driver_is_added_to_the_url() -> None:
 @requires_postgres
 def test_indexing_is_idempotent(corpus: Path, settings: Settings, collection: str) -> None:
     """Indexar duas vezes o mesmo corpus não cria chunk repetido."""
-    from pauta.tools.retriever import get_store
-
     common = {"embeddings": fake_embeddings(), "collection_name": collection}
     first = index_samples(settings, directory=corpus, **common)  # type: ignore[arg-type]
     second = index_samples(settings, directory=corpus, **common)  # type: ignore[arg-type]
@@ -162,7 +172,6 @@ def test_indexing_is_idempotent(corpus: Path, settings: Settings, collection: st
 
 @requires_postgres
 def test_a_stored_chunk_keeps_its_source(corpus: Path, settings: Settings, collection: str) -> None:
-    from pauta.tools.retriever import get_store
 
     common = {"embeddings": fake_embeddings(), "collection_name": collection}
     index_samples(settings, directory=corpus, **common)  # type: ignore[arg-type]

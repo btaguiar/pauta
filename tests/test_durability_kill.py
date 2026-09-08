@@ -86,3 +86,8 @@ async def test_the_run_survives_a_hard_kill(tmp_path: Path) -> None:
 
     assert final["final_report"] == "Briefing depois do kill."
     assert [f.content for f in final["findings"]] == ["descoberta antes da morte"]
+
+    # O teste escreve num banco de desenvolvimento. Checkpoint que ele deixa vira
+    # thread órfã na varredura de startup de quem só queria ver as próprias runs.
+    async with postgres_checkpointer(setup=False) as saver:
+        await saver.adelete_thread(thread_id)

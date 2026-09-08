@@ -65,9 +65,15 @@ async def test_postgres_checkpointer_round_trips_a_thread() -> None:
         )
         await graph.ainvoke(new_state(task="durável", run_id="r1"), config=config)
 
-    async with postgres_checkpointer(setup=False) as saver:
-        graph = build_graph(**fake_graph_models(), checkpointer=saver)
-        snapshot = await graph.aget_state(config)
-        assert snapshot.values["task"] == "durável"
-        assert snapshot.values["final_report"] == "Briefing."
-        assert [f.content for f in snapshot.values["findings"]] == ["a"]
+    try:
+        async with postgres_checkpointer(setup=False) as saver:
+            graph = build_graph(**fake_graph_models(), checkpointer=saver)
+            snapshot = await graph.aget_state(config)
+            assert snapshot.values["task"] == "durável"
+            assert snapshot.values["final_report"] == "Briefing."
+            assert [f.content for f in snapshot.values["findings"]] == ["a"]
+    finally:
+        # Banco de desenvolvimento de verdade: o que o teste deixa aparece como
+        # thread órfã para quem só queria ver as próprias runs.
+        async with postgres_checkpointer(setup=False) as saver:
+            await saver.adelete_thread(thread_id)

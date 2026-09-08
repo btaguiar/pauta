@@ -4,7 +4,9 @@ import os
 import uuid
 
 import pytest
+from psycopg import AsyncConnection
 
+from pauta.config import get_settings
 from pauta.memory.run_store import InMemoryRunStore, mark_orphans, postgres_run_store
 from pauta.memory.runs import Run, RunStatus
 
@@ -84,6 +86,13 @@ async def test_marking_orphans_twice_is_a_no_op(store: InMemoryRunStore) -> None
     assert await mark_orphans(store) == 0
 
 
+async def forget_run(run_id: str) -> None:
+    """Apaga a linha que o teste criou, para o banco voltar como estava."""
+    settings = get_settings()
+    async with await AsyncConnection.connect(settings.DATABASE_URL, autocommit=True) as conn:
+        await conn.execute("DELETE FROM pauta_runs WHERE run_id = %s", (run_id,))
+
+
 @requires_postgres
 async def test_the_postgres_store_outlives_the_connection() -> None:
     """Gravado numa conexão, lido em outra. É o que o `--resume` faz depois de um kill."""
@@ -94,10 +103,15 @@ async def test_the_postgres_store_outlives_the_connection() -> None:
         await store.save(run)
         await store.save(run.transition_to("interrupted"))
 
-    async with postgres_run_store(setup=False) as store:
-        found = await store.by_thread(f"thread-{run_id}")
-        assert found is not None
-        assert found.run_id == run_id
-        assert found.status == "interrupted"
-        assert found.task == "sobreviver ao processo"
-        assert [r.run_id for r in await store.list_runs() if r.run_id == run_id] == [run_id]
+    try:
+        async with postgres_run_store(setup=False) as store:
+            found = await store.by_thread(f"thread-{run_id}")
+            assert found is not None
+            assert found.run_id == run_id
+            assert found.status == "interrupted"
+            assert found.task == "sobreviver ao processo"
+            assert [r.run_id for r in await store.list_runs() if r.run_id == run_id] == [run_id]
+    finally:
+        # O teste escreve num banco de desenvolvimento de verdade. Linha que ele
+        # deixa vira ruído no `--list` de quem só queria ver as próprias runs.
+        await forget_run(run_id)
