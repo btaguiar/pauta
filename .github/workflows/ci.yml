@@ -77,6 +77,56 @@ jobs:
       - name: Suite completa, com o drain cooperativo e a morte suja
         run: uv run pytest
 
+  imagem:
+    name: imagem e compose de ponta a ponta
+    runs-on: ubuntu-latest
+    # Também não é condicional. O critério de aceite da fase é "um estranho
+    # clona e roda", e a única forma de saber se isso continua verdade é subir
+    # o compose a cada push.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Um .env de CI, com modelos falsos e chave que nunca chama ninguém
+        # Escrito do zero em vez de copiar o exemplo: chave duplicada em dotenv
+        # tem precedência ambígua, e aqui o valor precisa ser o que está escrito.
+        run: |
+          cat > .env <<'ENV'
+          OPENROUTER_API_KEY=ci-nunca-chama-provider
+          OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+          MODEL_WORKER=fake/worker
+          MODEL_ROUTER=fake/router
+          MODEL_CRITIC=fake/critic
+          EMBEDDING_MODEL=fake/embedding
+          HITL_MODE=auto
+          ENV
+
+      - name: Subir o stack e esperar ficar saudável
+        run: docker compose up -d --build --wait
+
+      - name: A API responde, e diz que o teto diário não protege sem preço
+        run: |
+          set -euo pipefail
+          body=$(curl -sf localhost:8000/health)
+          echo "$body"
+          echo "$body" | grep -q '"status":"ok"'
+          echo "$body" | grep -q '"budget_enforceable":false'
+
+      - name: O registro de runs responde vazio
+        run: |
+          set -euo pipefail
+          test "$(curl -sf localhost:8000/runs)" = "[]"
+
+      # A indexação do corpus fica de fora: ela chama embedding de verdade, e a
+      # chave desta matriz é falsa de propósito.
+
+      - name: Logs quando algo falha
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Derrubar
+        if: always()
+        run: docker compose down -v
+
   eval:
     name: eval sobre o golden set
     # Este é condicional porque gasta chamada de API paga. Destravar com
