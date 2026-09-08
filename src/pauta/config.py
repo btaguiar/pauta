@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     HITL_MODE: HitlMode = "auto"
     MAX_SUPERVISOR_STEPS: int = Field(default=8, gt=0)
     MAX_CRITIC_LOOPS: int = Field(default=2, ge=0)
+    # Quantas voltas o research pode dar sem achar nada antes de a run desistir
+    # e mandar o writer dizer o que faltou. Medido: sem este teto, uma tarefa
+    # cuja resposta nao esta no corpus repetiu research quatro vezes e gastou
+    # 58 mil tokens sem produzir briefing. Minimo 1: a primeira tentativa
+    # sempre acontece.
+    MAX_EMPTY_RESEARCH: int = Field(default=2, gt=0)
     BUDGET_TOKENS_PER_RUN: int = Field(default=60_000, gt=0)
     # Um teto por papel, porque o trabalho de cada nó tem duração diferente. O
     # research faz até MAX_TOOL_ROUNDS buscas e leva ~29s medidos; o supervisor

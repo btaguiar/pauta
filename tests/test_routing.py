@@ -120,3 +120,40 @@ def test_the_exhausted_critic_is_never_proposed_again(settings: Settings, limit:
     )
     assert enforce_rules(state, "writer", resolved) != "critic"
     assert enforce_rules(state, "critic", resolved) != "critic"
+
+
+def with_empty_research(settings: Settings, limit: int) -> Settings:
+    return settings.model_copy(update={"MAX_EMPTY_RESEARCH": limit})
+
+
+def test_the_first_research_always_happens(settings: Settings) -> None:
+    """O contador só sobe depois que o research roda, então a primeira volta é livre."""
+    assert enforce_rules(state_with(), "writer", with_empty_research(settings, 1)) == "research"
+
+
+def test_research_that_keeps_coming_back_empty_gives_up(settings: Settings) -> None:
+    """Sem este teto, o orçamento era o único freio, e ele é o recurso mais caro."""
+    state = state_with(empty_research=2)
+    resolved = with_empty_research(settings, 2)
+    assert enforce_rules(state, "writer", resolved) != "research"
+    assert enforce_rules(state, "research", resolved) != "research"
+
+
+def test_a_research_that_found_something_is_never_blocked(settings: Settings) -> None:
+    """Achar na terceira tentativa não pode ser punido por ter falhado nas duas."""
+    state = state_with(
+        empty_research=9,
+        findings=[Finding(content="a", source="s", agent="research")],
+    )
+    assert enforce_rules(state, "research", with_empty_research(settings, 2)) == "research"
+
+
+def test_giving_up_on_research_still_passes_through_the_critic(settings: Settings) -> None:
+    state = state_with(empty_research=5)
+    assert enforce_rules(state, "research", with_empty_research(settings, 2)) == "critic"
+
+
+def test_giving_up_reaches_the_writer_once_the_critic_ran(settings: Settings) -> None:
+    """O writer sabe dizer o que não encontrou; é para isso que o prompt dele existe."""
+    state = state_with(empty_research=5, critiques=[Critique(verdict="refinar")])
+    assert enforce_rules(state, "research", with_empty_research(settings, 2)) == "writer"

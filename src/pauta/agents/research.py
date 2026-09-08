@@ -176,6 +176,10 @@ def make_research_node(
 
             span.tokens_used = tokens
             span.extra["findings"] = len(findings)
-            return {"findings": findings, "tokens_used": tokens}
+            return {
+                "findings": findings,
+                "tokens_used": tokens,
+                "empty_research": 0 if findings else 1,
+            }
 
     return research

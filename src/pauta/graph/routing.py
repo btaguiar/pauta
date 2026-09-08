@@ -31,6 +31,21 @@ def critic_loops_exhausted(state: AgentState, settings: Settings) -> bool:
     return state.get("critic_loops", 0) >= settings.MAX_CRITIC_LOOPS
 
 
+def empty_research_exhausted(state: AgentState, settings: Settings) -> bool:
+    """A pesquisa já voltou de mãos vazias o bastante para não valer insistir.
+
+    Só morde enquanto não há descoberta nenhuma. Research que achou algo na
+    terceira tentativa não fica bloqueado por ter falhado nas duas primeiras.
+
+    Existe porque o orçamento era o único freio, e ele é o recurso mais caro:
+    sem este teto, uma tarefa cuja resposta não está no corpus repetiu research
+    quatro vezes e gastou 58 mil tokens sem chegar ao writer.
+    """
+    if state.get("findings"):
+        return False
+    return state.get("empty_research", 0) >= settings.MAX_EMPTY_RESEARCH
+
+
 def forced_route(state: AgentState, settings: Settings) -> NextStep | None:
     """Rota imposta pelos limites, antes de perguntar ao LLM.
 
@@ -61,11 +76,20 @@ def enforce_rules(
     nada gasta uma run inteira para produzir um texto que só informa a própria
     falta de dados. Quem passa por cima disto é o `forced_route`, que já
     decidiu antes quando o orçamento ou as iterações acabaram.
+    Regra 5: a regra 4 tem teto. Esgotado o `MAX_EMPTY_RESEARCH`, insistir só
+    gasta orçamento, e o writer sabe dizer o que não encontrou.
     """
     if proposed not in available:
         proposed = "writer"
-    if proposed == "writer" and not state.get("findings") and "research" in available:
+    if (
+        proposed == "writer"
+        and not state.get("findings")
+        and "research" in available
+        and not empty_research_exhausted(state, settings)
+    ):
         return "research"
+    if proposed == "research" and empty_research_exhausted(state, settings):
+        proposed = "writer"
     if "critic" in available and proposed == "writer" and not state.get("critiques"):
         proposed = "critic"
     if proposed == "critic" and critic_loops_exhausted(state, settings):

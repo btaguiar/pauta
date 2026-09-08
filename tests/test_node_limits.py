@@ -13,7 +13,7 @@ from pauta.agents.research import ResearchOutput
 from pauta.agents.supervisor import Router
 from pauta.config import Settings, get_settings
 from pauta.graph.builder import build_graph
-from pauta.graph.state import Finding, new_state
+from pauta.graph.state import Critique, Finding, new_state
 from tests.fakes import FakeChatModel, fake_graph_models
 
 
@@ -98,3 +98,35 @@ async def test_tools_are_optional() -> None:
     config: RunnableConfig = {"configurable": {"thread_id": "sem-tools"}}
     final = await graph.ainvoke(new_state(task="t", run_id="r1"), config=config)
     assert final["final_report"] == "Briefing."
+
+
+async def test_fruitless_research_gives_up_instead_of_burning_the_budget() -> None:
+    """Foi assim que uma run real gastou 58 mil tokens sem produzir briefing.
+
+    O research volta vazio sempre. Com o teto, a run chega ao writer, que redige
+    dizendo o que não encontrou, em vez de repetir pesquisa até o orçamento acabar.
+    """
+    resolved = get_settings().model_copy(
+        update={"MAX_EMPTY_RESEARCH": 2, "MAX_SUPERVISOR_STEPS": 20}
+    )
+    empty = ResearchOutput(findings=[])
+    graph = build_graph(
+        **fake_graph_models(
+            supervisor_model=FakeChatModel(
+                responses=[Router(next="research", rationale="tentar de novo")] * 12
+            ),
+            research_model=FakeChatModel(responses=["nada achei", empty] * 6),
+            critic_model=FakeChatModel(responses=[Critique(verdict="refinar")] * 4),
+            writer_model=FakeChatModel(responses=["Não encontrei material sobre isso."]),
+        ),
+        settings=resolved,
+        checkpointer=InMemorySaver(),
+    )
+    final = await graph.ainvoke(
+        new_state(task="algo que o corpus não responde", run_id="r1"),
+        config={"configurable": {"thread_id": "sem-resposta"}},
+    )
+
+    assert final["final_report"] == "Não encontrei material sobre isso."
+    assert final["empty_research"] == 2, "parou no teto, não seguiu tentando"
+    assert final["tokens_used"] < resolved.BUDGET_TOKENS_PER_RUN

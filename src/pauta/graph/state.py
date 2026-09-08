@@ -43,6 +43,7 @@ class AgentState(TypedDict, total=False):
     critiques: Annotated[list[Critique], operator.add]
     iteration: Annotated[int, operator.add]
     critic_loops: Annotated[int, operator.add]
+    empty_research: Annotated[int, operator.add]
     tokens_used: Annotated[int, operator.add]
     next_agent: NextStep
     final_report: str | None
@@ -71,6 +72,7 @@ def new_state(task: str, run_id: str) -> AgentState:
         critiques=[],
         iteration=0,
         critic_loops=0,
+        empty_research=0,
         tokens_used=0,
         next_agent="research",
         final_report=None,

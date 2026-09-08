@@ -52,6 +52,8 @@ def render_state(state: AgentState, settings: Settings) -> str:
             f"Lacunas apontadas: {gaps if gaps else 'nenhuma'}",
             f"Iterações usadas: {state.get('iteration', 0)}/{settings.MAX_SUPERVISOR_STEPS}",
             f"Refações usadas: {state.get('critic_loops', 0)}/{settings.MAX_CRITIC_LOOPS}",
+            f"Pesquisas sem resultado: {state.get('empty_research', 0)}/"
+            f"{settings.MAX_EMPTY_RESEARCH}",
             f"Tokens usados: {state.get('tokens_used', 0)}/{settings.BUDGET_TOKENS_PER_RUN}",
             f"Feedback humano: {state.get('hitl_feedback') or 'nenhum'}",
         ]
