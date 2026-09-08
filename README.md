@@ -101,17 +101,39 @@ o código corrige a decisão dele antes de aplicá-la. As sete ADRs estão em
   serem inequívocos. Um conjunto sem caso difícil superestima a concordância.
 - `incerteza_sinalizada` é casamento de marcador de texto, não compreensão.
 - O corpus tem 6 documentos e 22 chunks. Pequeno demais para generalizar.
-- Sem API HTTP e sem Dockerfile da aplicação. O compose sobe só o Postgres.
+- A API não faz streaming. O contrato prevê `GET /runs/{id}/stream` por SSE, e
+  ele não existe, então a demo que mostraria os eventos ao vivo também não.
+- O rate limit conta na memória do processo. Duas réplicas seriam dois
+  limitadores, e o teto efetivo dobraria.
+- O teto diário só protege quando `COST_PER_MTOK_USD` está preenchido. Vazio,
+  `GET /health` responde `budget_enforceable: false`, e é literalmente isso.
 - A busca web depende da Tavily. Sem `TAVILY_API_KEY`, o research fica só com o
   corpus local.
 
 ## Rodar
 
+Tudo em container, que é o caminho de quem só quer ver funcionando:
+
 ```
 cp .env.example .env      # preencha OPENROUTER_API_KEY e os três MODEL_*
-docker compose up -d
-uv sync
+docker compose up -d --build
+docker compose run --rm index      # indexa samples/, opcional
 
+curl -s localhost:8000/health
+curl -s -X POST localhost:8000/runs \
+  -H 'content-type: application/json' \
+  -d '{"task": "vale a pena migrar de API por token para GPU dedicada?"}'
+```
+
+O `POST` responde 201 na hora com o `thread_id` e executa em segundo plano.
+`GET /runs/{id}` traz o briefing, as descobertas, as críticas e o custo. O
+teto diário e o rate limit por IP recusam com 503 e 429, com o motivo no corpo.
+
+Pela linha de comando, sem container:
+
+```
+docker compose up -d postgres
+uv sync
 uv run python -m pauta "vale a pena migrar de API por token para GPU dedicada?"
 ```
 

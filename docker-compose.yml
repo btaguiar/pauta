@@ -1,6 +1,6 @@
-# Postgres com pgvector: guarda o checkpoint do grafo e o índice do retriever
-# (ADR 005). A credencial abaixo é de desenvolvimento local e é idêntica à do
-# .env.example. Se uma mudar, a outra muda no mesmo commit.
+# Postgres com pgvector: guarda o checkpoint do grafo, o registro de runs e o
+# índice do retriever (ADR 005). A credencial abaixo é de desenvolvimento local
+# e é idêntica à do .env.example. Se uma mudar, a outra muda no mesmo commit.
 services:
   postgres:
     image: pgvector/pgvector:pg17
@@ -18,6 +18,42 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # A API. Sobe junto com o compose e espera o banco ficar saudável.
+  api:
+    build:
+      context: .
+      target: runtime
+    container_name: pauta-api
+    env_file: .env
+    environment:
+      # Dentro da rede do compose o banco atende por nome, não por localhost.
+      # Esta linha vence a do .env, que aponta para a máquina do desenvolvedor.
+      DATABASE_URL: postgresql://pauta:pauta@postgres:5432/pauta
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Indexação do corpus, sob profile: roda quando alguém pede, não no `up`.
+  #     docker compose run --rm index
+  # Rodar duas vezes não duplica chunk, porque o id do chunk é determinístico.
+  index:
+    build:
+      context: .
+      target: runtime
+    profiles: ["tools"]
+    command: ["python", "-m", "pauta", "--index-corpus"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://pauta:pauta@postgres:5432/pauta
+    volumes:
+      - ./samples:/app/samples:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   pauta-pgdata:

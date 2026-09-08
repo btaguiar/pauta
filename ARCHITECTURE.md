@@ -26,7 +26,7 @@ flowchart TB
     end
 
     S -. estado por thread .-> PG[(PostgreSQL<br/>checkpointer + pgvector)]
-    S -. eventos tipados .-> API[FastAPI · SSE stream]
+    S -. eventos tipados .-> API[FastAPI<br/>SSE ainda não implementado]
 ```
 
 O supervisor decide o próximo passo a cada ciclo. O crítico pode devolver o
