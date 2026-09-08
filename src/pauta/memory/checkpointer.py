@@ -19,6 +19,13 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from ..config import Settings, get_settings
 from ..observability import emit
 
+#: Comparar `sys.platform` dentro do `if` faz o mypy podar o outro ramo e acusar
+#: código inalcançável. O ramo podado é o oposto em cada máquina: no Windows do
+#: desenvolvimento sobra um, no Linux do CI sobra o outro, e `warn_unreachable`
+#: transforma isso em erro dos dois lados. A constante guarda o mesmo teste sem
+#: deixar o checker decidir qual ramo existe.
+IS_WINDOWS: bool = sys.platform == "win32"
+
 
 def loop_factory() -> Callable[[], asyncio.AbstractEventLoop] | None:
     """Fábrica de event loop compatível com o psycopg async.
@@ -30,7 +37,7 @@ def loop_factory() -> Callable[[], asyncio.AbstractEventLoop] | None:
     Quem abre o loop passa isto ao `asyncio.Runner`. Uma biblioteca não troca a
     policy global do processo por conta própria.
     """
-    if sys.platform != "win32":
+    if not IS_WINDOWS:
         return None
     return lambda: asyncio.SelectorEventLoop(selectors.SelectSelector())
 

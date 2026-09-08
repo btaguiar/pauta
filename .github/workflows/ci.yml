@@ -34,6 +34,13 @@ jobs:
       - name: Tipos
         run: uv run mypy
 
+      - name: Tipos como o Windows os ve
+        # O repositorio e desenvolvido no Windows e integrado no Linux. Codigo
+        # condicionado a `sys.platform` faz o mypy podar ramos diferentes em
+        # cada um, e `warn_unreachable` acusa so o lado que aquela maquina nao
+        # ve. Checar os dois aqui e o que fecha esse ponto cego.
+        run: uv run mypy --platform win32
+
       - name: Testes
         # Sem PAUTA_TEST_POSTGRES, os testes que exigem banco são pulados aqui.
         # Eles rodam no job `durabilidade`, que sobe o Postgres de verdade.
