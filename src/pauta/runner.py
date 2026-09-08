@@ -130,6 +130,26 @@ async def resume_run(
     return await _drive(running, payload, graph=graph, store=store)
 
 
+async def _spent_so_far(graph: Graph, config: RunnableConfig) -> tuple[int, int]:
+    """Tokens e iterações que o checkpoint já registrou, para uma run que falhou.
+
+    Uma run que morre gastou tokens de verdade, e gravar zero no ponteiro faz o
+    teto diário subcontabilizar justamente as runs que queimaram token sem
+    entregar nada.
+
+    O número é um piso, não o total exato: o superstep que falhou não chega a
+    ser gravado, então o que ele consumiu antes de estourar não aparece aqui.
+    Piso medido é melhor que zero inventado.
+    """
+    try:
+        snapshot = await graph.aget_state(config)
+    except Exception as exc:
+        emit("error", node="runner", error=f"checkpoint ilegível após falha: {exc}")
+        return 0, 0
+    values = snapshot.values or {}
+    return int(values.get("tokens_used", 0)), int(values.get("iteration", 0))
+
+
 async def _drive(run: Run, payload: Any, *, graph: Graph, store: RunStore) -> RunOutcome:
     """Roda o grafo e grava o desfecho, qualquer que ele seja.
 
@@ -141,13 +161,21 @@ async def _drive(run: Run, payload: Any, *, graph: Graph, store: RunStore) -> Ru
     try:
         final = await graph.ainvoke(payload, config=config)
     except Exception as exc:
-        failed = run.model_copy(update={"error": f"{type(exc).__name__}: {exc}"})
+        tokens, iterations = await _spent_so_far(graph, config)
+        failed = run.model_copy(
+            update={
+                "error": f"{type(exc).__name__}: {exc}",
+                "tokens_used": tokens,
+                "iterations": iterations,
+            }
+        )
         await store.save(failed.transition_to("failed"))
         emit(
             "error",
             node="runner",
             run_id=run.run_id,
             thread_id=run.thread_id,
+            tokens_used=tokens,
             error_type=type(exc).__name__,
             error=str(exc),
         )

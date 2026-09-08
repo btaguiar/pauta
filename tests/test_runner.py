@@ -173,3 +173,25 @@ async def test_a_run_killed_mid_flight_still_resumes(store: InMemoryRunStore) ->
 
     resumed = await resume_run(started.run.thread_id, graph=graph, store=store)
     assert resumed.run.status == "completed"
+
+
+async def test_a_failed_run_records_what_it_already_spent(store: InMemoryRunStore) -> None:
+    """Gravar zero faria o teto diario ignorar as runs que queimaram e nao entregaram."""
+    graph = build_graph(
+        **fake_graph_models(
+            supervisor_model=FakeChatModel(responses=[Router(next="research", rationale="reunir")]),
+            research_model=FakeChatModel(responses=[RuntimeError("provider caiu")]),
+        ),
+        settings=get_settings().model_copy(update={"NODE_RETRIES": 0}),
+        checkpointer=InMemorySaver(),
+    )
+    with pytest.raises(RuntimeError, match="provider caiu"):
+        await start_run("t", graph=graph, store=store, thread_id="gastou")
+
+    saved = await store.by_thread("gastou")
+    assert saved is not None
+    assert saved.status == "failed"
+    # O supervisor completou o superstep dele antes de o research cair, entao o
+    # checkpoint ja tem o que ele consumiu.
+    assert saved.tokens_used > 0
+    assert saved.iterations == 1
