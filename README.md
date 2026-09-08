@@ -48,17 +48,27 @@ Pela linha de comando, o mesmo mecanismo é `--list` e `--resume`.
 
 ## Números
 
-Não há nenhum, e isso é declarado de propósito.
+Cinco execuções reais, em 2026-09-08, commit `23ce942`. É a primeira vez que o
+sistema falou com um provider, então o `n` é pequeno e está dito em cada linha.
 
-A avaliação está construída: 26 tarefas rotuladas à mão, cinco métricas
-determinísticas que leem esses rótulos, três repetições por tarefa com o desvio
-reportado, um juiz binário travado por Kappa de Cohen, e um JSON por rodada com
-o SHA do commit no nome. O que não existe é resultado, porque `MODEL_WORKER`,
-`MODEL_ROUTER` e `MODEL_CRITIC` ainda não foram escolhidos.
+| o que | medido |
+|---|---|
+| briefing sobre o corpus, ponta a ponta | 12.406 tokens, 35s, 3 ciclos (n=1) |
+| o mesmo com revisão humana no meio | 13.656 tokens, 4 ciclos (n=1) |
+| tarefa-armadilha, com busca web | 80.728 tokens, 125s (n=1) |
+| runs que terminaram | 3 de 5 |
 
-O método, as definições e as limitações estão em
-[EVALUATION.md](EVALUATION.md). Quando houver número, ele vem de execução real,
-com data, commit e `n`.
+O que essas cinco execuções já mostraram de errado, e vale mais que os acertos:
+a tarefa-armadilha gastou 80.728 tokens contra um orçamento de 60.000, porque o
+guardrail corta rodadas de tool e não interrompe a chamada em curso. Uma tarefa
+cuja resposta não está no corpus fez o supervisor voltar ao research quatro
+vezes até o orçamento acabar. E numa tarefa que exige conta, o supervisor nunca
+passou pelo analyst, então a aritmética foi feita de cabeça, contra a regra do
+prompt. Esse último foi o eval que pegou, no primeiro uso.
+
+Nenhuma combinação de modelos foi comparada ainda: `eval/matrix.py` existe e
+nunca rodou. O método, as definições e as limitações estão em
+[EVALUATION.md](EVALUATION.md).
 
 ## O grafo
 

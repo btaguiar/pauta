@@ -153,6 +153,35 @@ uv run python eval/matrix.py --limit 5                   # compara configuraçõ
 Exige `.env` preenchido. `MODEL_WORKER`, `MODEL_ROUTER`, `MODEL_CRITIC` e
 `EMBEDDING_MODEL` não têm valor padrão no código, de propósito.
 
+## O que a primeira execução real mostrou
+
+Em 2026-09-08, commit `23ce942`, o sistema falou com um provider pela primeira
+vez. Foram cinco runs, todas com `MODEL_WORKER=openai/gpt-5.6-luna`,
+`MODEL_ROUTER=openai/gpt-5.4-mini` e `MODEL_CRITIC=openai/gpt-5.6-terra`. O `n`
+é 1 por tarefa, então nada aqui é conclusão sobre qualidade. São defeitos, e
+defeito aparece com n=1.
+
+**O orçamento por run é um teto mole.** Uma tarefa gastou 80.728 tokens contra
+`BUDGET_TOKENS_PER_RUN=60000`, 35% acima. O guardrail impede novas rodadas de
+tool, e não interrompe a chamada em curso nem a extração final nem o writer.
+O número serve para conter, não para garantir.
+
+**Nada limita quantas vezes o research é reconvocado.** Numa tarefa cuja
+resposta não está no corpus, o ciclo research com zero descobertas seguido de
+supervisor se repetiu quatro vezes, até o orçamento acabar, sem nunca chegar ao
+writer. `MAX_CRITIC_LOOPS` limita o crítico; não há equivalente para a pesquisa
+infrutífera, e o backstop é o orçamento, que é o recurso mais caro.
+
+**O timeout do research está calibrado para outro modelo.** O `.env.example`
+registra "research leva ~29s com 3 buscas". Com os modelos acima, uma tarefa de
+busca web estourou os 90s. Recalibrar faz parte de escolher os tiers.
+
+**O supervisor pulou o analyst numa tarefa que exige conta.** `t10` pede
+confirmar um percentual e está rotulada com `needs_calculus`. A rota foi
+research, critic, writer, e a aritmética saiu de cabeça, contra a regra 1 do
+prompt do analista. Foi a métrica `calculadora_usada` que pegou isso, no
+primeiro uso do harness.
+
 ## Limitações declaradas
 
 O que segue não foi resolvido. Está escrito aqui porque um documento de
