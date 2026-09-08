@@ -2,9 +2,9 @@
 
 Como o pauta é medido, o que cada número significa, e o que ainda não foi medido.
 
-Este documento descreve o método. Ele não traz resultados: nenhuma rodada
-completa foi executada até aqui, porque a combinação de modelos ainda não foi
-escolhida. Quando houver número, ele entra aqui com a data, o commit e o `n`.
+Este documento descreve o método. Ele traz o que seis execuções reais mediram,
+e não traz nota de qualidade: a combinação de modelos ainda não foi escolhida e
+o golden set nunca rodou inteiro. Todo número aqui vem com data, commit e `n`.
 
 ## O golden set
 
@@ -155,26 +155,34 @@ Exige `.env` preenchido. `MODEL_WORKER`, `MODEL_ROUTER`, `MODEL_CRITIC` e
 
 ## O que a primeira execução real mostrou
 
-Em 2026-09-08, commit `23ce942`, o sistema falou com um provider pela primeira
-vez. Foram cinco runs, todas com `MODEL_WORKER=openai/gpt-5.6-luna`,
+Em 2026-09-08 o sistema falou com um provider pela primeira vez. Foram seis
+runs, todas com `MODEL_WORKER=openai/gpt-5.6-luna`,
 `MODEL_ROUTER=openai/gpt-5.4-mini` e `MODEL_CRITIC=openai/gpt-5.6-terra`. O `n`
 é 1 por tarefa, então nada aqui é conclusão sobre qualidade. São defeitos, e
 defeito aparece com n=1.
 
-**O orçamento por run é um teto mole.** Uma tarefa gastou 80.728 tokens contra
-`BUDGET_TOKENS_PER_RUN=60000`, 35% acima. O guardrail impede novas rodadas de
-tool, e não interrompe a chamada em curso nem a extração final nem o writer.
-O número serve para conter, não para garantir.
+Latência medida por nó, em segundos: supervisor 1,4 a 2,0; research 10 a 17
+sobre o corpus e 61 com busca web; critic 1,5 a 18; writer 6 a 10. O analyst
+nunca foi roteado, então não tem medida.
 
-**Nada limita quantas vezes o research é reconvocado.** Numa tarefa cuja
-resposta não está no corpus, o ciclo research com zero descobertas seguido de
-supervisor se repetiu quatro vezes, até o orçamento acabar, sem nunca chegar ao
-writer. `MAX_CRITIC_LOOPS` limita o crítico; não há equivalente para a pesquisa
-infrutífera, e o backstop é o orçamento, que é o recurso mais caro.
+**O orçamento por run é um teto mole.** Duas tarefas passaram do teto: 80.728 e
+64.775 tokens contra `BUDGET_TOKENS_PER_RUN=60000`, 35% e 8% acima. O guardrail
+impede novas rodadas de tool, e não interrompe a chamada em curso, nem a
+extração final, nem o writer. O número serve para conter, não para garantir.
 
-**O timeout do research está calibrado para outro modelo.** O `.env.example`
-registra "research leva ~29s com 3 buscas". Com os modelos acima, uma tarefa de
-busca web estourou os 90s. Recalibrar faz parte de escolher os tiers.
+**Nada limitava quantas vezes o research era reconvocado, e agora limita.**
+Numa tarefa cuja resposta não está no corpus, o ciclo research com zero
+descobertas seguido de supervisor se repetiu quatro vezes, até o orçamento
+acabar, sem nunca chegar ao writer. `MAX_EMPTY_RESEARCH` passou a existir,
+simétrico ao `MAX_CRITIC_LOOPS`: esgotado o teto, a rota vai para o writer, que
+sabe dizer o que não encontrou.
+
+**O timeout do research estava calibrado para outro modelo, e foi corrigido.**
+O `.env.example` registrava "~29s com 3 buscas". Medido de novo em execução
+real: 10 a 17s sobre o corpus, 61s com busca web, e uma run estourou os 90s que
+eram o teto. Subiu para 180s. O do analyst continua herdado do research: o
+supervisor nunca roteou para ele em nenhuma das medições, então ele nunca foi
+medido.
 
 **O supervisor pulou o analyst numa tarefa que exige conta.** `t10` pede
 confirmar um percentual e está rotulada com `needs_calculus`. A rota foi

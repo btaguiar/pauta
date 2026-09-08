@@ -43,28 +43,30 @@ alguém lembra não é prova.
 
 Pela linha de comando, o mesmo mecanismo é `--list` e `--resume`.
 
-> Falta aqui um GIF de 20 segundos mostrando isso ao vivo. Ele depende de uma
-> execução real, e nenhuma combinação de modelos foi escolhida ainda.
+> Falta aqui um GIF de 20 segundos mostrando isso ao vivo. O fluxo já roda
+> ponta a ponta contra um provider real; o que falta é gravar.
 
 ## Números
 
-Cinco execuções reais, em 2026-09-08, commit `23ce942`. É a primeira vez que o
-sistema falou com um provider, então o `n` é pequeno e está dito em cada linha.
+Seis execuções reais, em 2026-09-08. É a primeira vez que o sistema falou com um
+provider, então o `n` é pequeno e está dito em cada linha.
 
 | o que | medido |
 |---|---|
 | briefing sobre o corpus, ponta a ponta | 12.406 tokens, 35s, 3 ciclos (n=1) |
 | o mesmo com revisão humana no meio | 13.656 tokens, 4 ciclos (n=1) |
 | tarefa-armadilha, com busca web | 80.728 tokens, 125s (n=1) |
-| runs que terminaram | 3 de 5 |
+| latência do research | 10 a 17s no corpus, 61s com busca web (n=5) |
+| runs que terminaram | 4 de 6 |
 
-O que essas cinco execuções já mostraram de errado, e vale mais que os acertos:
+O que essas seis execuções já mostraram de errado, e vale mais que os acertos:
 a tarefa-armadilha gastou 80.728 tokens contra um orçamento de 60.000, porque o
 guardrail corta rodadas de tool e não interrompe a chamada em curso. Uma tarefa
 cuja resposta não está no corpus fez o supervisor voltar ao research quatro
-vezes até o orçamento acabar. E numa tarefa que exige conta, o supervisor nunca
-passou pelo analyst, então a aritmética foi feita de cabeça, contra a regra do
-prompt. Esse último foi o eval que pegou, no primeiro uso.
+vezes até o orçamento acabar, o que virou o `MAX_EMPTY_RESEARCH`. E numa tarefa
+que exige conta, o supervisor nunca passou pelo analyst, então a aritmética foi
+feita de cabeça, contra a regra do prompt. Esse último foi o eval que pegou, no
+primeiro uso.
 
 Nenhuma combinação de modelos foi comparada ainda: `eval/matrix.py` existe e
 nunca rodou. O método, as definições e as limitações estão em
@@ -97,7 +99,8 @@ o código corrige a decisão dele antes de aplicá-la. As sete ADRs estão em
 | decisão | por quê |
 |---|---|
 | Predicado de retry próprio, em vez do padrão | O `default_retry_on` do LangGraph retenta 5xx e recusa `ValueError`, mas não retenta 429. Rate limit precisa ser retentado e erro de schema não. [builder.py:31](src/pauta/graph/builder.py#L31) |
-| Orçamento de tokens em duas camadas | Checar o contador só entre nós deixava a run passar de 60k, porque um nó de pesquisa gasta dezenas de milhares de uma vez. A checagem também acontece dentro do nó, entre rodadas de tool. [budget.py](src/pauta/graph/budget.py) |
+| Orçamento de tokens em duas camadas | Checar o contador só entre nós deixava a run passar de 60k, porque um nó de pesquisa gasta dezenas de milhares de uma vez. A checagem também acontece dentro do nó, entre rodadas de tool. Ainda assim é teto mole: medido, passou 35% em execução real. [budget.py](src/pauta/graph/budget.py) |
+| Teto para pesquisa infrutífera | Uma tarefa sem resposta no corpus fez o supervisor voltar ao research quatro vezes e gastar 58 mil tokens sem chegar ao writer. `MAX_EMPTY_RESEARCH` é simétrico ao `MAX_CRITIC_LOOPS`, e só morde enquanto não há descoberta nenhuma. [routing.py](src/pauta/graph/routing.py) |
 | O LLM propõe a rota, o código dispõe | Limites impostos antes de consultar o modelo, regras reaplicadas depois da resposta, e rota determinística quando o parse falha duas vezes. [routing.py:47](src/pauta/graph/routing.py#L47) |
 | Crítico que não responde reprova | Sem veredito, o material segue como não validado e a ressalva vai no briefing. Aprovar por omissão é o modo de falha que a ADR 002 existe para pegar. [critic.py:83](src/pauta/agents/critic.py#L83) |
 | Um nível de supervisão, não hierarquia | Subgrafo e supervisor de supervisor só entram com justificativa medida no eval. ADR 001 |

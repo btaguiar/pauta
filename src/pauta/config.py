@@ -54,11 +54,13 @@ class Settings(BaseSettings):
     # sempre acontece.
     MAX_EMPTY_RESEARCH: int = Field(default=2, gt=0)
     BUDGET_TOKENS_PER_RUN: int = Field(default=60_000, gt=0)
-    # Um teto por papel, porque o trabalho de cada nó tem duração diferente. O
-    # research faz até MAX_TOOL_ROUNDS buscas e leva ~29s medidos; o supervisor
-    # é uma chamada curta e leva ~1,6s. Um número único serviria mal aos dois.
+    # Um teto por papel, porque o trabalho de cada nó tem duração diferente.
+    # Medido em 2026-09-08 contra os modelos do `.env`, em execuções reais:
+    # supervisor 1,4 a 2,0s; research 10 a 17s sobre o corpus e 61s com busca
+    # web; critic 1,5 a 18s; writer 6 a 10s. O research é o menos previsível dos
+    # cinco, e uma run chegou a estourar 90s, que era o teto anterior.
     NODE_TIMEOUT_SUPERVISOR_S: float = Field(default=20.0, gt=0)
-    NODE_TIMEOUT_RESEARCH_S: float = Field(default=90.0, gt=0)
+    NODE_TIMEOUT_RESEARCH_S: float = Field(default=180.0, gt=0)
     NODE_TIMEOUT_WRITER_S: float = Field(default=45.0, gt=0)
     NODE_TIMEOUT_CRITIC_S: float = Field(default=45.0, gt=0)
     NODE_TIMEOUT_ANALYST_S: float = Field(default=90.0, gt=0)
