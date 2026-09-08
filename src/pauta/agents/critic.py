@@ -8,6 +8,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from ..config import Settings, get_settings
 from ..graph.state import AgentState, Critique, GraphNode
 from ..observability import emit, node_span
+from ._common import tokens_from
 
 CRITIC_PROMPT = """Você é o crítico. Avalie se as descobertas sustentam uma resposta à
 tarefa. Verifique: a fonte existe e é citada? o cálculo confere?
@@ -42,13 +43,6 @@ def render_material(state: AgentState) -> str:
     return "\n".join(blocks)
 
 
-def _tokens_from(message: Any) -> int:
-    usage = getattr(message, "usage_metadata", None)
-    if isinstance(usage, dict):
-        return int(usage.get("total_tokens", 0))
-    return 0
-
-
 def make_critic_node(
     model: BaseChatModel,
     settings: Settings | None = None,
@@ -67,7 +61,7 @@ def make_critic_node(
             try:
                 result = await judge.ainvoke(messages)
                 if isinstance(result, dict):
-                    tokens = _tokens_from(result.get("raw"))
+                    tokens = tokens_from(result.get("raw"))
                     parsed = result.get("parsed")
                     if isinstance(parsed, Critique):
                         verdict = parsed

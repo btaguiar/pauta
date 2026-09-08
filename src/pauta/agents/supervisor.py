@@ -14,6 +14,7 @@ from ..config import Settings, get_settings
 from ..graph.routing import ALL_AGENTS, enforce_rules, fallback_route, forced_route
 from ..graph.state import AgentState, GraphNode, NextStep
 from ..observability import emit, node_span
+from ._common import tokens_from
 
 SUPERVISOR_PROMPT = """Você é o supervisor de uma equipe de análise. Diante do estado atual
 (tarefa original, descobertas, críticas, iterações restantes, orçamento
@@ -60,13 +61,6 @@ def render_state(state: AgentState, settings: Settings) -> str:
     )
 
 
-def _tokens_from(raw: Any) -> int:
-    usage = getattr(raw, "usage_metadata", None)
-    if isinstance(usage, dict):
-        return int(usage.get("total_tokens", 0))
-    return 0
-
-
 def make_supervisor_node(
     model: BaseChatModel,
     settings: Settings | None = None,
@@ -105,7 +99,7 @@ def make_supervisor_node(
                         raise TypeError(
                             f"include_raw=True devia devolver dict, veio {type(result).__name__}"
                         )
-                    tokens += _tokens_from(result.get("raw"))
+                    tokens += tokens_from(result.get("raw"))
                     parsed = result.get("parsed")
                     if isinstance(parsed, Router):
                         decision = parsed

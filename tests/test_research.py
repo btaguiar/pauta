@@ -7,7 +7,8 @@ import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import BaseTool, tool
 
-from pauta.agents.research import ResearchOutput, make_research_node, unanswered
+from pauta.agents._common import unanswered
+from pauta.agents.research import ResearchOutput, make_research_node
 from pauta.config import Settings, get_settings
 from pauta.graph.state import AgentState, Critique, Finding, new_state
 from pauta.observability import setup_logging

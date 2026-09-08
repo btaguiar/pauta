@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
@@ -12,6 +12,7 @@ from ..config import Settings, get_settings
 from ..graph.budget import would_exhaust
 from ..graph.state import AgentState, Finding, GraphNode
 from ..observability import emit, node_span
+from ._common import run_tools, tokens_from, unanswered
 
 ANALYST_PROMPT = """Você é o analista de uma equipe de análise. Processe o material já
 reunido: calcule, compare, converta unidade, cheque consistência.
@@ -54,72 +55,6 @@ def render_material(state: AgentState) -> str:
     )
 
 
-def _tokens_from(message: Any) -> int:
-    usage = getattr(message, "usage_metadata", None)
-    if isinstance(usage, dict):
-        return int(usage.get("total_tokens", 0))
-    return 0
-
-
-async def _run_tools(
-    tools: Sequence[BaseTool],
-    message: AIMessage,
-    *,
-    run_id: str,
-) -> list[ToolMessage]:
-    by_name = {tool.name: tool for tool in tools}
-    results: list[ToolMessage] = []
-    for call in message.tool_calls:
-        emit("tool_call", node="analyst", run_id=run_id, tool=call["name"], args=call["args"])
-        tool = by_name.get(call["name"])
-        if tool is None:
-            results.append(
-                ToolMessage(
-                    content=f"tool desconhecida: {call['name']}",
-                    tool_call_id=call["id"] or "",
-                    status="error",
-                )
-            )
-            continue
-        try:
-            results.append(await tool.ainvoke(call))
-        except Exception as exc:
-            emit(
-                "error",
-                node="analyst",
-                run_id=run_id,
-                tool=call["name"],
-                error_type=type(exc).__name__,
-                error=str(exc),
-            )
-            results.append(
-                ToolMessage(
-                    content=f"a tool {call['name']} falhou: {exc}",
-                    tool_call_id=call["id"] or "",
-                    status="error",
-                )
-            )
-    return results
-
-
-def unanswered(message: AIMessage) -> list[ToolMessage]:
-    """Fecha as tool calls que ficaram sem resposta quando o orçamento acabou.
-
-    Uma `AIMessage` com `tool_calls` sem a `ToolMessage` correspondente é uma
-    conversa inválida: o provider recusa com 400 e a run inteira se perde depois
-    de já ter gastado o orçamento. Parar com o parcial só é parar de verdade se
-    o histórico continuar coerente.
-    """
-    return [
-        ToolMessage(
-            content="não executada: o orçamento da run acabou",
-            tool_call_id=call["id"] or "",
-            status="error",
-        )
-        for call in message.tool_calls
-    ]
-
-
 def make_analyst_node(
     model: BaseChatModel,
     tools: Sequence[BaseTool],
@@ -142,7 +77,7 @@ def make_analyst_node(
 
             for _ in range(resolved.MAX_TOOL_ROUNDS):
                 reply = await with_tools.ainvoke(history)
-                tokens += _tokens_from(reply)
+                tokens += tokens_from(reply)
                 history.append(reply)
                 if not isinstance(reply, AIMessage) or not reply.tool_calls:
                     break
@@ -156,12 +91,12 @@ def make_analyst_node(
                     )
                     history.extend(unanswered(reply))
                     break
-                history.extend(await _run_tools(tools, reply, run_id=run_id))
+                history.extend(await run_tools(tools, reply, node="analyst", run_id=run_id))
 
             history.append(HumanMessage(EXTRACTION_PROMPT))
             result = await extractor.ainvoke(history)
             if isinstance(result, dict):
-                tokens += _tokens_from(result.get("raw"))
+                tokens += tokens_from(result.get("raw"))
                 parsed = result.get("parsed")
             else:
                 parsed = result

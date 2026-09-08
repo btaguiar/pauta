@@ -8,6 +8,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from ..config import Settings, get_settings
 from ..graph.state import AgentState, GraphNode
 from ..observability import emit, node_span
+from ._common import tokens_from
 
 WRITER_PROMPT = """Você é o redator de uma equipe de análise. Escreva um briefing curto
 que responda à tarefa, usando apenas o material reunido.
@@ -49,13 +50,6 @@ def render_material(state: AgentState) -> str:
     return "\n".join(blocks)
 
 
-def _tokens_from(message: Any) -> int:
-    usage = getattr(message, "usage_metadata", None)
-    if isinstance(usage, dict):
-        return int(usage.get("total_tokens", 0))
-    return 0
-
-
 def make_writer_node(
     model: BaseChatModel,
     settings: Settings | None = None,
@@ -73,7 +67,7 @@ def make_writer_node(
             reply = await model.ainvoke(
                 [SystemMessage(prompt), HumanMessage(render_material(state))]
             )
-            tokens = _tokens_from(reply)
+            tokens = tokens_from(reply)
             report = reply.text if isinstance(reply.text, str) else str(reply.content)
 
             span.tokens_used = tokens
