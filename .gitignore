@@ -2,8 +2,9 @@
 .env
 .env.local
 
-# Documento de planejamento pessoal, fica fora do repo publico
+# Documentos de planejamento pessoal, ficam fora do repo publico
 DOSSIE.md
+PLANO.md
 
 # Python
 __pycache__/
