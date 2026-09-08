@@ -102,6 +102,24 @@ async def _run_tools(
     return results
 
 
+def unanswered(message: AIMessage) -> list[ToolMessage]:
+    """Fecha as tool calls que ficaram sem resposta quando o orçamento acabou.
+
+    Uma `AIMessage` com `tool_calls` sem a `ToolMessage` correspondente é uma
+    conversa inválida: o provider recusa com 400 e a run inteira se perde depois
+    de já ter gastado o orçamento. Parar com o parcial só é parar de verdade se
+    o histórico continuar coerente.
+    """
+    return [
+        ToolMessage(
+            content="não executada: o orçamento da run acabou",
+            tool_call_id=call["id"] or "",
+            status="error",
+        )
+        for call in message.tool_calls
+    ]
+
+
 def make_analyst_node(
     model: BaseChatModel,
     tools: Sequence[BaseTool],
@@ -136,6 +154,7 @@ def make_analyst_node(
                         error="orçamento da run esgotado no meio do nó; parando com o parcial",
                         tokens_used=tokens,
                     )
+                    history.extend(unanswered(reply))
                     break
                 history.extend(await _run_tools(tools, reply, run_id=run_id))
 

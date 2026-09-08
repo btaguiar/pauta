@@ -1,12 +1,13 @@
 import io
 import json
 import logging
+from typing import Any
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import BaseTool, tool
 
-from pauta.agents.research import ResearchOutput, make_research_node
+from pauta.agents.research import ResearchOutput, make_research_node, unanswered
 from pauta.config import Settings, get_settings
 from pauta.graph.state import AgentState, Critique, Finding, new_state
 from pauta.observability import setup_logging
@@ -153,3 +154,55 @@ async def test_the_critic_gaps_reach_the_researcher(settings: Settings) -> None:
     await node(state_with(critiques=[Critique(verdict="refinar", gaps=["falta o preço da GPU"])]))
     first_prompt = str(model.calls[0][1].content)
     assert "falta o preço da GPU" in first_prompt
+
+
+def a_tool_call(name: str, call_id: str = "call_1", tokens: int = 200) -> AIMessage:
+    """Uma AIMessage pedindo tool, com uso declarado.
+
+    O fake devolve `AIMessage` como veio, sem inventar `usage_metadata`, então o
+    contador do nó só enxerga o que a própria mensagem carrega.
+    """
+    return AIMessage(
+        content="",
+        tool_calls=[{"name": name, "args": {"query": "x"}, "id": call_id, "type": "tool_call"}],
+        usage_metadata={
+            "input_tokens": tokens // 2,
+            "output_tokens": tokens - tokens // 2,
+            "total_tokens": tokens,
+        },
+    )
+
+
+def dangling_tool_calls(messages: list[Any]) -> list[str]:
+    """Ids de tool call que ficaram sem `ToolMessage`. O provider recusa a conversa assim."""
+    asked = [
+        str(call["id"])
+        for message in messages
+        if isinstance(message, AIMessage)
+        for call in message.tool_calls
+        if call["id"]
+    ]
+    answered = {message.tool_call_id for message in messages if isinstance(message, ToolMessage)}
+    return [call_id for call_id in asked if call_id not in answered]
+
+
+def test_the_helper_closes_every_call_it_was_given() -> None:
+    closed = unanswered(a_tool_call("busca_fake", "call_abc"))
+    assert [message.tool_call_id for message in closed] == ["call_abc"]
+    assert closed[0].status == "error"
+    assert "orçamento" in closed[0].content
+
+
+async def test_a_budget_stop_leaves_no_tool_call_unanswered(settings: Settings) -> None:
+    """Foi assim que uma run real morreu com 400 depois de gastar 58 mil tokens."""
+    broke = settings.model_copy(update={"BUDGET_TOKENS_PER_RUN": 1})
+    model = FakeChatModel(
+        responses=[a_tool_call("busca_fake"), ResearchOutput(findings=[])],
+        input_tokens=100,
+        output_tokens=100,
+    )
+    node = make_research_node(model, [busca_fake], broke)
+    await node(new_state(task="t", run_id="r1"))
+
+    extraction = model.calls[-1]
+    assert dangling_tool_calls(extraction) == [], "o extractor recebeu conversa inválida"
