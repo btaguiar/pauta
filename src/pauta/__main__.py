@@ -5,6 +5,7 @@
     python -m pauta --list
     python -m pauta --resume THREAD_ID
     python -m pauta --resume THREAD_ID --feedback "foque no custo de saída"
+    python -m pauta --index-corpus
 
 Por padrão a run é durável: o checkpoint e o ponteiro vão para o Postgres do
 `docker-compose.yml`. Com `--ephemeral` os dois viram memória e nada sobrevive ao
@@ -30,6 +31,7 @@ from .memory.runs import Run
 from .observability import configure_tracing, emit, setup_logging
 from .runner import RunAlreadyFinished, RunNotFound, RunOutcome, resume_run, start_run
 from .tools import analyst_tools, research_tools
+from .tools.retriever import EmptyCorpus, index_samples
 
 MISSING_CONFIG_MESSAGE = """Falta configuração para rodar o pauta.
 
@@ -41,7 +43,7 @@ Detalhe do validador:
 """
 
 Resources = tuple[BaseCheckpointSaver[Any], RunStore]
-Mode = Literal["start", "resume", "list"]
+Mode = Literal["start", "resume", "list", "index"]
 
 #: Quanto da tarefa cabe numa linha do `--list` antes de virar ruído.
 TASK_PREVIEW_CHARS = 60
@@ -76,6 +78,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="mostra as runs registradas, com o thread_id de cada uma",
     )
     parser.add_argument(
+        "--index-corpus",
+        dest="index_corpus",
+        action="store_true",
+        help="indexa samples/ no pgvector; rodar duas vezes não duplica chunk",
+    )
+    parser.add_argument(
         "--ephemeral",
         action="store_true",
         help="roda sem Postgres; nada sobrevive ao processo",
@@ -84,22 +92,26 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def mode_of(args: argparse.Namespace) -> Mode:
-    """Qual dos três modos o usuário pediu. Combinação ambígua é recusada aqui.
+    """Qual dos quatro modos o usuário pediu. Combinação ambígua é recusada aqui.
 
     Recusar cedo é melhor que obedecer meio pedido. Um `--resume` sobre store em
     memória, por exemplo, nunca acharia nada, e a mensagem falaria de run
     inexistente em vez do argumento errado.
     """
-    asked = [bool(args.task), bool(args.resume), bool(args.list_runs)]
+    asked = [bool(args.task), bool(args.resume), bool(args.list_runs), bool(args.index_corpus)]
     if sum(asked) != 1:
-        raise UsageError("escolha exatamente um: uma pergunta, --resume THREAD_ID ou --list")
+        raise UsageError(
+            "escolha exatamente um: uma pergunta, --resume THREAD_ID, --list ou --index-corpus"
+        )
     if args.feedback and not args.resume:
         raise UsageError("--feedback só faz sentido junto de --resume")
     if args.ephemeral and not args.task:
         raise UsageError("--ephemeral só vale para uma run nova; nada fica gravado para retomar")
     if args.task:
         return "start"
-    return "resume" if args.resume else "list"
+    if args.resume:
+        return "resume"
+    return "index" if args.index_corpus else "list"
 
 
 @asynccontextmanager
@@ -120,6 +132,25 @@ async def open_resources(
         postgres_run_store(settings) as store,
     ):
         yield saver, store
+
+
+def index_corpus(settings: Settings) -> int:
+    """Indexa `samples/` no pgvector. Não abre checkpointer nem registro de runs.
+
+    Sem este modo, as tarefas do golden set que dependem do corpus não tinham
+    como rodar: `index_samples` só era alcançável de dentro do Python.
+    """
+    try:
+        report = index_samples(settings)
+    except EmptyCorpus as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 2
+    except Exception as exc:
+        emit("error", node="cli", error_type=type(exc).__name__, error=str(exc))
+        sys.stderr.write(f"a indexação falhou: {type(exc).__name__}: {exc}\n")
+        return 1
+    sys.stdout.write(f"corpus indexado: {report}\n")
+    return 0
 
 
 def render(outcome: RunOutcome) -> str:
@@ -174,6 +205,9 @@ async def main_async(args: argparse.Namespace) -> int:
     except UsageError as exc:
         sys.stderr.write(f"{exc}\n")
         return 2
+
+    if mode == "index":
+        return index_corpus(settings)
 
     try:
         async with open_resources(settings, ephemeral=args.ephemeral) as (saver, store):

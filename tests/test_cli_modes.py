@@ -1,12 +1,15 @@
-"""Os três modos do CLI e a recusa de combinações que não descrevem nenhum."""
+"""Os quatro modos do CLI e a recusa de combinações que não descrevem nenhum."""
 
 import argparse
 from datetime import UTC, datetime
 
 import pytest
 
+import pauta.__main__ as main
 from pauta.__main__ import UsageError, build_parser, main_async, mode_of, render_runs
+from pauta.config import get_settings
 from pauta.memory.runs import Run, RunStatus
+from pauta.tools.retriever import EmptyCorpus, IndexReport
 
 
 def parse(*argv: str) -> argparse.Namespace:
@@ -96,7 +99,48 @@ def test_the_listing_offers_nothing_when_everything_finished() -> None:
 
 async def test_an_unusable_combination_exits_two(capsys: pytest.CaptureFixture[str]) -> None:
     args = argparse.Namespace(
-        task=None, resume=None, list_runs=False, feedback=None, ephemeral=False
+        task=None,
+        resume=None,
+        list_runs=False,
+        index_corpus=False,
+        feedback=None,
+        ephemeral=False,
     )
     assert await main_async(args) == 2
     assert "escolha exatamente um" in capsys.readouterr().err
+
+
+def test_indexing_the_corpus_is_its_own_mode() -> None:
+    assert mode_of(parse("--index-corpus")) == "index"
+
+
+def test_indexing_does_not_mix_with_a_question() -> None:
+    with pytest.raises(UsageError, match="escolha exatamente um"):
+        mode_of(parse("uma pergunta", "--index-corpus"))
+
+
+def test_indexing_in_memory_is_refused() -> None:
+    """Índice em memória não sobrevive ao processo, e aí não indexou nada."""
+    with pytest.raises(UsageError, match="--ephemeral"):
+        mode_of(parse("--index-corpus", "--ephemeral"))
+
+
+def test_an_empty_corpus_exits_two_instead_of_pretending_it_indexed(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def refuse(_: object) -> None:
+        raise EmptyCorpus("nenhum documento indexável em samples/")
+
+    monkeypatch.setattr(main, "index_samples", refuse)
+    assert main.index_corpus(get_settings()) == 2
+    assert "nenhum documento indexável" in capsys.readouterr().err
+
+
+def test_a_successful_index_reports_what_it_wrote(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        main, "index_samples", lambda _: IndexReport(documents=6, chunks=22, skipped=1)
+    )
+    assert main.index_corpus(get_settings()) == 0
+    assert "6 documentos, 22 chunks, 1 ignorados" in capsys.readouterr().out
