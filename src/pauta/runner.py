@@ -60,6 +60,24 @@ async def start_run(
     thread_id: str | None = None,
 ) -> RunOutcome:
     """Registra uma run nova e a executa até o fim ou até o interrupt."""
+    run = await register_run(task, store=store, run_id=run_id, thread_id=thread_id)
+    return await execute_run(run, graph=graph, store=store)
+
+
+async def register_run(
+    task: str,
+    *,
+    store: RunStore,
+    run_id: str | None = None,
+    thread_id: str | None = None,
+) -> Run:
+    """Grava o ponteiro da run e devolve os ids, sem executar nada.
+
+    Registrar e executar são separados porque a API precisa dos dois momentos:
+    ela responde 201 com o `thread_id` na hora e executa em segundo plano. Se o
+    processo cair entre um e outro, a run existe no registro e a varredura de
+    startup a encontra, que é o contrário de sumir sem rastro.
+    """
     generated_run_id, generated_thread_id = new_ids()
     run = Run(
         run_id=run_id or generated_run_id,
@@ -68,7 +86,12 @@ async def start_run(
     )
     await store.save(run)
     emit("node_start", node="runner", run_id=run.run_id, thread_id=run.thread_id, task=task)
-    return await _drive(run, new_state(task=task, run_id=run.run_id), graph=graph, store=store)
+    return run
+
+
+async def execute_run(run: Run, *, graph: Graph, store: RunStore) -> RunOutcome:
+    """Executa uma run já registrada, até o fim ou até o interrupt."""
+    return await _drive(run, new_state(task=run.task, run_id=run.run_id), graph=graph, store=store)
 
 
 async def resume_run(
