@@ -105,3 +105,29 @@ def test_the_api_serves_every_endpoint_the_contract_names() -> None:
         "/runs/{run_id}/resume",
         "/runs/{run_id}/continue",
     }
+
+
+def test_the_image_carries_the_demo_page() -> None:
+    """A API serve a demo em /demo; sem o COPY, a rota responde 404 no container."""
+    assert "COPY --chown=pauta:pauta demo/ ./demo/" in DOCKERFILE
+
+
+def test_the_demo_page_exists_where_the_api_looks_for_it() -> None:
+    from pauta.api.main import DEMO_PAGE
+
+    assert DEMO_PAGE.is_file(), f"a API procura a demo em {DEMO_PAGE}"
+    assert DEMO_PAGE == REPO_ROOT / "demo" / "index.html"
+
+
+def test_the_demo_never_puts_server_text_into_html() -> None:
+    """Briefing e descoberta vêm de um LLM. Texto de LLM entra no DOM como texto."""
+    page = (REPO_ROOT / "demo" / "index.html").read_text(encoding="utf-8")
+    written = re.findall(r"\.(innerHTML|outerHTML|insertAdjacentHTML)\s*[=(]", page)
+    assert written == [], f"a demo escreve HTML cru: {written}"
+    assert "textContent" in page
+
+
+def test_the_demo_needs_no_build_and_no_cdn() -> None:
+    page = (REPO_ROOT / "demo" / "index.html").read_text(encoding="utf-8")
+    assert "<script src=" not in page
+    assert "https://" not in page.split("<script>")[1]

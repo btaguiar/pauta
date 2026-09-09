@@ -15,12 +15,14 @@ from langgraph.checkpoint.memory import InMemorySaver
 from pauta.agents.research import ResearchOutput
 from pauta.agents.supervisor import Router
 from pauta.api.limits import RateLimiter
-from pauta.api.main import Resources, create_app
+from pauta.api.main import Resources, _events_of, create_app
 from pauta.config import Settings, get_settings
 from pauta.graph.builder import build_graph
 from pauta.graph.state import Critique, Finding
 from pauta.memory.run_store import InMemoryRunStore
 from pauta.memory.runs import Run, RunStatus
+from pauta.observability import setup_logging
+from pauta.runner import execute_run, register_run
 from tests.fakes import FakeChatModel, fake_graph_models
 
 
@@ -268,3 +270,78 @@ async def orphan(resources: Resources, run_id: str) -> None:
     run = await resources.store.get(run_id)
     assert run is not None
     await resources.store.save(run.transition_to("orphaned"))
+
+
+def test_the_stream_of_an_unknown_run_is_404(client: TestClient) -> None:
+    assert client.get("/runs/sumiu/stream").status_code == 404
+
+
+def test_the_stream_replays_a_run_that_already_finished(
+    client: TestClient, resources: Resources
+) -> None:
+    """Cliente que chega tarde não pode ficar esperando um evento que já passou."""
+    created = client.post("/runs", json={"task": "vale a pena migrar?"}).json()
+    settle_background(client, resources)
+
+    with client.stream("GET", f"/runs/{created['run_id']}/stream") as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        body = "".join(response.iter_text())
+
+    assert "event: final" in body
+    assert "já tinha terminado" in body
+
+
+def test_the_demo_page_is_served_by_the_api(client: TestClient) -> None:
+    response = client.get("/demo")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "EventSource" in response.text
+
+
+async def test_the_generator_streams_the_events_of_a_live_run(resources: Resources) -> None:
+    """Direto no gerador: o TestClient serializa o portal e não serve para stream vivo.
+
+    É o mesmo emissor do log, então o que sai aqui foi o que de fato aconteceu.
+    """
+    setup_logging()
+    resources.broadcaster.install()
+    try:
+        run = await register_run("vale a pena migrar?", store=resources.store)
+        frames: list[str] = []
+
+        async def collect() -> None:
+            async for chunk in _events_of(resources, run.run_id):
+                frames.append(chunk)
+
+        reader = asyncio.create_task(collect())
+        await asyncio.sleep(0)
+        await execute_run(run, graph=resources.graph_for("auto"), store=resources.store)
+        await asyncio.wait_for(reader, timeout=5)
+    finally:
+        resources.broadcaster.uninstall()
+
+    body = "".join(frames)
+    assert "event: node_start" in body
+    assert "event: finding" in body
+    assert "event: critique" in body
+    assert '"type": "finding"' in body
+    assert "custa 1800 USD" in body
+
+
+async def test_the_stream_stops_when_the_run_stops(resources: Resources) -> None:
+    """Sem o sinal de fim, o cliente ficaria pendurado numa run que já acabou."""
+    setup_logging()
+    resources.broadcaster.install()
+    try:
+        run = await register_run("vale a pena migrar?", store=resources.store)
+
+        async def collect() -> int:
+            return len([chunk async for chunk in _events_of(resources, run.run_id)])
+
+        reader = asyncio.create_task(collect())
+        await asyncio.sleep(0)
+        await execute_run(run, graph=resources.graph_for("auto"), store=resources.store)
+        assert await asyncio.wait_for(reader, timeout=5) > 0
+    finally:
+        resources.broadcaster.uninstall()

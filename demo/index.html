@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pauta · o processo, não só a resposta</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #161b22;
+    --line: #262d38;
+    --ink: #e6edf3;
+    --dim: #8b949e;
+    --accent: #4b9fff;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --bad: #f85149;
+    --supervisor: #a371f7;
+    --research: #4b9fff;
+    --analyst: #2dd4bf;
+    --critic: #d29922;
+    --writer: #3fb950;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    border-bottom: 1px solid var(--line);
+    padding: 18px 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  h1 { font-size: 17px; margin: 0; letter-spacing: .2px; }
+  header p { margin: 0; color: var(--dim); font-size: 13px; }
+  main { max-width: 1180px; margin: 0 auto; padding: 22px 24px 60px; }
+
+  form { display: grid; gap: 10px; margin-bottom: 22px; }
+  textarea {
+    width: 100%; min-height: 74px; resize: vertical; padding: 11px 13px;
+    background: var(--panel); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 8px;
+    font: inherit;
+  }
+  textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .controls { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  label.toggle { display: flex; gap: 7px; align-items: center; color: var(--dim); font-size: 13px; }
+  button {
+    background: var(--accent); color: #06121f; border: 0; border-radius: 7px;
+    padding: 9px 16px; font: 600 14px/1 inherit; cursor: pointer;
+  }
+  button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  button[disabled] { opacity: .45; cursor: not-allowed; }
+
+  .pill {
+    font: 600 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .8px;
+    padding: 5px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim);
+  }
+  .pill[data-state="running"] { color: var(--accent); border-color: var(--accent); }
+  .pill[data-state="interrupted"] { color: var(--warn); border-color: var(--warn); }
+  .pill[data-state="completed"] { color: var(--ok); border-color: var(--ok); }
+  .pill[data-state="failed"] { color: var(--bad); border-color: var(--bad); }
+
+  .grid { display: grid; grid-template-columns: 1.25fr .95fr; gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+  section.panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; overflow: hidden;
+  }
+  .panel > h2 {
+    margin: 0; padding: 11px 15px; font: 600 12px/1 var(--mono);
+    text-transform: uppercase; letter-spacing: 1px; color: var(--dim);
+    border-bottom: 1px solid var(--line);
+  }
+  .body { padding: 13px 15px; }
+  .scroll { max-height: 460px; overflow-y: auto; }
+
+  ol.stream { list-style: none; margin: 0; padding: 0; font: 12.5px/1.5 var(--mono); }
+  ol.stream li {
+    display: grid; grid-template-columns: 58px 84px 1fr; gap: 10px;
+    padding: 5px 15px; border-bottom: 1px solid #1c222b;
+  }
+  ol.stream li:last-child { border-bottom: 0; }
+  .t { color: #55606d; }
+  .node { font-weight: 600; }
+  .node.supervisor { color: var(--supervisor); }
+  .node.research { color: var(--research); }
+  .node.analyst { color: var(--analyst); }
+  .node.critic { color: var(--critic); }
+  .node.writer { color: var(--writer); }
+  .node.runner, .node.api, .node.recovery { color: var(--dim); }
+  .what { color: var(--ink); word-break: break-word; }
+  .what em { color: var(--dim); font-style: normal; }
+  li.err .what { color: var(--bad); }
+
+  .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); }
+  .metric { background: var(--panel); padding: 12px 14px; }
+  .metric b { display: block; font: 600 21px/1.2 var(--mono); }
+  .metric span { color: var(--dim); font-size: 11.5px; text-transform: uppercase; letter-spacing: .7px; }
+  .metric.over b { color: var(--warn); }
+
+  ul.items { list-style: none; margin: 0; padding: 0; }
+  ul.items li { padding: 9px 0; border-bottom: 1px solid #1c222b; font-size: 13.5px; }
+  ul.items li:last-child { border-bottom: 0; }
+  .src { display: block; color: var(--dim); font: 11.5px/1.5 var(--mono); margin-top: 3px; word-break: break-all; }
+  .verdict { font: 600 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .8px; }
+  .verdict.ok { color: var(--ok); }
+  .verdict.refinar { color: var(--warn); }
+  .empty { color: var(--dim); font-size: 13px; }
+
+  #briefing { margin-top: 20px; }
+  #briefing pre {
+    margin: 0; padding: 16px 18px; white-space: pre-wrap; word-break: break-word;
+    font: 14px/1.65 ui-sans-serif, system-ui, sans-serif;
+  }
+  #hitl { border-color: var(--warn); }
+  #hitl .body { display: grid; gap: 10px; }
+  #hitl input {
+    padding: 9px 11px; background: var(--bg); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 7px; font: inherit;
+  }
+  .note { color: var(--dim); font-size: 12.5px; margin: 0; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pauta</h1>
+  <p>briefings analíticos multi-agente. o que você vê abaixo é o processo, não só a resposta.</p>
+  <span class="pill" id="state" data-state="idle">ocioso</span>
+</header>
+
+<main>
+  <form id="ask">
+    <textarea id="task" required maxlength="2000"
+      placeholder="Ex.: O relatório em samples/ afirma que a latência média caiu 40%. Confirme esse número e diga se a metodologia sustenta a afirmação."></textarea>
+    <div class="controls">
+      <button type="submit" id="send">Pedir briefing</button>
+      <label class="toggle"><input type="checkbox" id="interrupt"> congelar antes da redação (human-in-the-loop)</label>
+      <span class="note" id="hint"></span>
+    </div>
+  </form>
+
+  <section class="panel" id="hitl" hidden>
+    <h2>a run congelou e espera você</h2>
+    <div class="body">
+      <p class="note">O material foi reunido e criticado. O writer não rodou ainda. Uma nota sua entra no prompt da redação.</p>
+      <input id="feedback" maxlength="2000" placeholder="opcional: seja mais duro com a metodologia">
+      <div class="controls">
+        <button type="button" id="approve">Aprovar e redigir</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>eventos do grafo</h2>
+      <ol class="stream scroll" id="stream"></ol>
+      <div class="body" id="streamEmpty"><span class="empty">Nada ainda. Peça um briefing acima.</span></div>
+    </section>
+
+    <div style="display:grid; gap:20px">
+      <section class="panel">
+        <h2>custo</h2>
+        <div class="metrics">
+          <div class="metric" id="mTokens"><b>0</b><span>tokens</span></div>
+          <div class="metric"><b id="mSteps">0</b><span>ciclos</span></div>
+          <div class="metric"><b id="mTools">0</b><span>tools</span></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>descobertas</h2>
+        <div class="body scroll"><ul class="items" id="findings"></ul>
+          <span class="empty" id="findingsEmpty">nenhuma ainda</span></div>
+      </section>
+
+      <section class="panel">
+        <h2>crítica</h2>
+        <div class="body scroll"><ul class="items" id="critiques"></ul>
+          <span class="empty" id="critiquesEmpty">o crítico ainda não opinou</span></div>
+      </section>
+    </div>
+  </div>
+
+  <section class="panel" id="briefing" hidden>
+    <h2>briefing</h2>
+    <pre id="report"></pre>
+  </section>
+</main>
+
+<script>
+"use strict";
+// Nada aqui usa innerHTML com dado do servidor. O briefing e as descobertas vêm
+// de um LLM, e texto de LLM entra no DOM como texto, sempre.
+const $ = (id) => document.getElementById(id);
+const stream = $("stream");
+const state = $("state");
+
+let source = null;
+let current = null;
+let started = 0;
+let budget = 60000;
+const seen = { tokens: 0, steps: 0, tools: 0, findings: 0, critiques: 0 };
+
+const NODE_LABEL = {
+  supervisor: "supervisor", research: "research", analyst: "analyst",
+  critic: "critic", writer: "writer", runner: "runner", api: "api",
+  recovery: "recovery", checkpointer: "banco", run_store: "banco", retriever: "retriever",
+};
+
+function setState(name, label) {
+  state.dataset.state = name;
+  state.textContent = label || name;
+}
+
+function clock() {
+  const s = started ? (Date.now() - started) / 1000 : 0;
+  return s.toFixed(1) + "s";
+}
+
+function line(node, text, opts) {
+  $("streamEmpty").hidden = true;
+  const li = document.createElement("li");
+  if (opts && opts.error) li.className = "err";
+
+  const t = document.createElement("span");
+  t.className = "t";
+  t.textContent = clock();
+
+  const n = document.createElement("span");
+  n.className = "node " + (node || "runner");
+  n.textContent = NODE_LABEL[node] || node || "—";
+
+  const w = document.createElement("span");
+  w.className = "what";
+  w.textContent = text;
+
+  li.append(t, n, w);
+  stream.append(li);
+  li.scrollIntoView({ block: "nearest" });
+}
+
+function bump(key, by) {
+  seen[key] += by;
+  $("mTokens").firstElementChild.textContent = seen.tokens.toLocaleString("pt-BR");
+  $("mSteps").textContent = seen.steps;
+  $("mTools").textContent = seen.tools;
+  $("mTokens").classList.toggle("over", seen.tokens > budget);
+}
+
+function addFinding(d) {
+  $("findingsEmpty").hidden = true;
+  const li = document.createElement("li");
+  li.textContent = d.content || "(sem conteúdo)";
+  const src = document.createElement("span");
+  src.className = "src";
+  src.textContent = "fonte: " + (d.source || "não declarada");
+  li.append(src);
+  $("findings").append(li);
+}
+
+function addCritique(d) {
+  $("critiquesEmpty").hidden = true;
+  const li = document.createElement("li");
+  const verdict = document.createElement("span");
+  verdict.className = "verdict " + (d.verdict === "ok" ? "ok" : "refinar");
+  verdict.textContent = d.verdict === "ok" ? "aprovado" : "pediu refino";
+  li.append(verdict);
+  const gaps = Array.isArray(d.gaps) ? d.gaps : [];
+  if (gaps.length) {
+    const ul = document.createElement("ul");
+    ul.className = "items";
+    for (const gap of gaps) {
+      const item = document.createElement("li");
+      item.textContent = gap;
+      ul.append(item);
+    }
+    li.append(ul);
+  }
+  $("critiques").append(li);
+}
+
+function reset() {
+  stream.replaceChildren();
+  $("findings").replaceChildren();
+  $("critiques").replaceChildren();
+  $("streamEmpty").hidden = false;
+  $("findingsEmpty").hidden = false;
+  $("critiquesEmpty").hidden = false;
+  $("briefing").hidden = true;
+  $("hitl").hidden = true;
+  $("report").textContent = "";
+  for (const k of Object.keys(seen)) seen[k] = 0;
+  bump("tokens", 0);
+  if (source) { source.close(); source = null; }
+}
+
+async function finish() {
+  if (source) { source.close(); source = null; }
+  const run = await fetch("/runs/" + current).then((r) => r.json());
+  setState(run.status, run.status);
+  seen.tokens = run.tokens_used || seen.tokens;
+  seen.steps = run.iterations || seen.steps;
+  bump("tokens", 0);
+
+  if (run.status === "interrupted") {
+    $("hitl").hidden = false;
+    $("hint").textContent = "";
+  } else {
+    $("send").disabled = false;
+  }
+  if (run.final_report) {
+    $("briefing").hidden = false;
+    $("report").textContent = run.final_report;
+  }
+  if (run.error) line("runner", run.error, { error: true });
+  const cost = run.cost_usd === null || run.cost_usd === undefined
+    ? "custo não calculado, COST_PER_MTOK_USD vazio"
+    : "custo " + run.cost_usd.toFixed(4) + " USD";
+  $("hint").textContent = cost;
+}
+
+function listen(runId) {
+  source = new EventSource("/runs/" + runId + "/stream");
+
+  source.addEventListener("node_start", (e) => {
+    const d = JSON.parse(e.data);
+    if (d.node === "runner") return;
+    line(d.node, "entrou");
+  });
+
+  source.addEventListener("node_end", (e) => {
+    const d = JSON.parse(e.data);
+    if (d.node === "runner") { finish(); return; }
+    const bits = [];
+    if (d.next_agent) bits.push("decidiu: " + d.next_agent);
+    if (d.rationale) bits.push(d.rationale);
+    if (typeof d.findings === "number") bits.push(d.findings + " descoberta(s)");
+    if (d.verdict) bits.push("veredito: " + d.verdict);
+    if (typeof d.latency_ms === "number") bits.push(Math.round(d.latency_ms) + "ms");
+    line(d.node, bits.join(" · ") || "saiu");
+    if (typeof d.tokens_used === "number") bump("tokens", d.tokens_used);
+    if (d.node === "supervisor") bump("steps", 1);
+  });
+
+  source.addEventListener("tool_call", (e) => {
+    const d = JSON.parse(e.data);
+    bump("tools", 1);
+    line(d.node, "tool " + d.tool + " " + JSON.stringify(d.args || {}));
+  });
+
+  source.addEventListener("finding", (e) => { addFinding(JSON.parse(e.data)); });
+  source.addEventListener("critique", (e) => {
+    const d = JSON.parse(e.data);
+    addCritique(d);
+    line("critic", "veredito " + d.verdict + " (volta " + d.loop + " de " + d.max_loops + ")");
+  });
+
+  source.addEventListener("final", (e) => {
+    const d = JSON.parse(e.data);
+    if (d.replay) { finish(); return; }
+    line("writer", "briefing pronto, " + d.characters + " caracteres");
+  });
+
+  source.addEventListener("usage", (e) => {
+    const d = JSON.parse(e.data);
+    if (typeof d.budget === "number") budget = d.budget;
+    line("runner", "uso: " + d.tokens_used + " de " + d.budget + " tokens");
+  });
+
+  source.addEventListener("error", (e) => {
+    if (!e.data) return;   // queda de conexão, não evento do grafo
+    const d = JSON.parse(e.data);
+    line(d.node, d.error || d.error_type || "erro", { error: true });
+  });
+
+  source.onerror = () => {
+    // O servidor fecha o stream quando a run acaba. Isso chega aqui como erro
+    // de conexão, e é o caminho normal, não uma falha.
+    if (source && source.readyState === EventSource.CLOSED) finish();
+  };
+}
+
+$("ask").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  reset();
+  $("send").disabled = true;
+  setState("running", "executando");
+  started = Date.now();
+  $("hint").textContent = "";
+
+  const body = { task: $("task").value };
+  if ($("interrupt").checked) body.hitl_mode = "interrupt";
+
+  const response = await fetch("/runs", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json();
+
+  if (!response.ok) {
+    setState("failed", response.status === 429 ? "rate limit" : "recusado");
+    line("api", payload.detail || "a API recusou o pedido", { error: true });
+    $("send").disabled = false;
+    return;
+  }
+  current = payload.run_id;
+  line("runner", "run " + payload.run_id + " registrada, thread " + payload.thread_id);
+  listen(current);
+});
+
+$("approve").addEventListener("click", async () => {
+  $("hitl").hidden = true;
+  setState("running", "redigindo");
+  started = started || Date.now();
+  await fetch("/runs/" + current + "/resume", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ approved: true, feedback: $("feedback").value || null }),
+  });
+  line("runner", "aprovado pelo revisor, retomando");
+  listen(current);
+});
+
+fetch("/health").then((r) => r.json()).then((h) => {
+  if (typeof h.daily_budget_usd === "number" && !h.budget_enforceable) {
+    $("hint").textContent = "teto diário sem preço declarado: COST_PER_MTOK_USD está vazio";
+  }
+}).catch(() => {});
+</script>
+</body>
+</html>

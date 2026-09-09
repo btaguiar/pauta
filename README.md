@@ -142,6 +142,13 @@ O `POST` responde 201 na hora com o `thread_id` e executa em segundo plano.
 `GET /runs/{id}` traz o briefing, as descobertas, as críticas e o custo. O
 teto diário e o rate limit por IP recusam com 503 e 429, com o motivo no corpo.
 
+Para ver acontecendo, `http://localhost:8000/demo` no navegador, ou o stream
+cru no terminal:
+
+```
+curl -sN localhost:8000/runs/RUN_ID/stream
+```
+
 Pela linha de comando, sem container:
 
 ```

@@ -9,16 +9,20 @@ a marca como `orphaned` sem retomar nada (ADR 006).
 Dois endpoints de retomada, porque são duas semânticas: `/resume` responde a um
 humano que estava segurando a run, `/continue` responde a uma queda.
 
-O streaming por SSE previsto na 8.6 não está aqui. Ele é o passo seguinte, e a
-demo que o consome depende dele.
+`GET /runs/{id}/stream` entrega os eventos do grafo por SSE, lidos do mesmo
+emissor que escreve o log. A página em `demo/index.html` consome esse stream e
+mostra o supervisor decidindo, a tool rodando e o crítico recusando, que é o
+processo e não só a resposta.
 """
 
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi.responses import HTMLResponse, StreamingResponse
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
@@ -31,6 +35,7 @@ from ..memory.runs import Run, RunStatus
 from ..observability import configure_tracing, emit, setup_logging
 from ..runner import Graph, RunAlreadyFinished, RunNotFound, execute_run, register_run, resume_run
 from ..tools import analyst_tools, research_tools
+from .events import DONE, EventBroadcaster, frame
 from .limits import RateLimiter, check_daily_budget, spend_today
 from .recovery import sweep
 from .schemas import Health, ResumeRequest, RunCreated, RunDetail, RunRequest, RunSummary
@@ -38,6 +43,15 @@ from .schemas import Health, ResumeRequest, RunCreated, RunDetail, RunRequest, R
 #: Um grafo compilado por modo, porque `interrupt_before` é decidido no
 #: `compile()` e não dá para mudar por requisição.
 Graphs = dict[HitlMode, Graph]
+
+#: A página da demo, servida pela própria API para o compose entregar tudo numa
+#: porta só. Sem build, sem framework, sem CDN.
+DEMO_PAGE = Path(__file__).resolve().parents[3] / "demo" / "index.html"
+
+#: Silêncio máximo antes de mandar um comentário SSE. Proxy que fecha conexão
+#: ociosa não distingue "nada aconteceu" de "morreu", e um nó de pesquisa fica
+#: um minuto sem emitir nada.
+KEEPALIVE_S = 15.0
 
 
 def build_graphs(settings: Settings, checkpointer: BaseCheckpointSaver[Any]) -> Graphs:
@@ -65,11 +79,13 @@ class Resources:
         store: RunStore,
         graphs: Graphs,
         limiter: RateLimiter,
+        broadcaster: EventBroadcaster | None = None,
     ) -> None:
         self.settings = settings
         self.store = store
         self.graphs = graphs
         self.limiter = limiter
+        self.broadcaster = broadcaster or EventBroadcaster()
         self.orphaned_at_startup = 0
         # Sem guardar a referência, o coletor de lixo pode recolher a task no
         # meio da run. Uma run some sem nem virar `failed`.
@@ -118,6 +134,38 @@ async def _material(resources: Resources, thread_id: str) -> tuple[list[Finding]
     return list(values.get("findings", [])), list(values.get("critiques", []))
 
 
+async def _events_of(resources: Resources, run_id: str) -> AsyncIterator[str]:
+    """Gera os frames de uma run até ela fechar ou o cliente sair.
+
+    A assinatura é aberta antes de olhar o estado da run, senão existe a corrida
+    óbvia: a run termina entre a consulta e a assinatura, e o cliente fica
+    esperando para sempre um evento que já passou.
+    """
+    with resources.broadcaster.listen(run_id) as queue:
+        run = await resources.store.get(run_id)
+        if run is not None and run.is_terminal:
+            yield frame(
+                {
+                    "event": "final",
+                    "run_id": run_id,
+                    "status": run.status,
+                    "tokens_used": run.tokens_used,
+                    "replay": "a run já tinha terminado quando o stream abriu",
+                }
+            )
+            return
+        while True:
+            try:
+                payload = await asyncio.wait_for(queue.get(), timeout=KEEPALIVE_S)
+            except TimeoutError:
+                # Comentário SSE: mantém a conexão viva sem inventar evento.
+                yield ": keepalive\n\n"
+                continue
+            if payload.get("event") == DONE:
+                return
+            yield frame(payload)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Abre banco, compila grafos e varre as órfãs antes de aceitar requisição."""
@@ -133,9 +181,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             graphs=build_graphs(settings, checkpointer),
             limiter=RateLimiter(settings.RATE_LIMIT_PER_IP),
         )
+        resources.broadcaster.install()
         resources.orphaned_at_startup = (await sweep(store)).orphaned
         app.state.resources = resources
-        yield
+        try:
+            yield
+        finally:
+            resources.broadcaster.uninstall()
 
 
 def create_app(resources: Resources | None = None) -> FastAPI:
@@ -187,6 +239,29 @@ def register_routes(app: FastAPI) -> None:
         run = await register_run(body.task, store=resources.store)
         _schedule(resources, _drive_in_background(resources, run, body.hitl_mode))
         return RunCreated(run_id=run.run_id, thread_id=run.thread_id, status=run.status)
+
+    @app.get("/runs/{run_id}/stream")
+    async def stream(run_id: str, resources: ResourcesDep) -> StreamingResponse:
+        """Os eventos do grafo, em SSE, enquanto a run acontece.
+
+        Lidos do mesmo emissor que escreve o log, então o que aparece aqui é
+        exatamente o que aconteceu, sem uma segunda instrumentação para
+        divergir da primeira.
+        """
+        if await resources.store.get(run_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"run {run_id!r} não existe")
+        return StreamingResponse(
+            _events_of(resources, run_id),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.get("/demo", response_class=HTMLResponse, include_in_schema=False)
+    async def demo() -> HTMLResponse:
+        """A página que consome o stream. Servida daqui para o compose ter uma porta só."""
+        if not DEMO_PAGE.is_file():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "a página da demo não foi empacotada")
+        return HTMLResponse(DEMO_PAGE.read_text(encoding="utf-8"))
 
     @app.get("/runs", response_model=list[RunSummary])
     async def list_runs(

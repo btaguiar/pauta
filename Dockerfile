@@ -41,6 +41,8 @@ COPY --from=builder --chown=pauta:pauta /app/.venv /app/.venv
 # `samples/` a partir da raiz do projeto, e o retriever depende disso.
 COPY --chown=pauta:pauta src/ ./src/
 COPY --chown=pauta:pauta samples/ ./samples/
+# A demo é servida pela própria API, em GET /demo.
+COPY --chown=pauta:pauta demo/ ./demo/
 
 USER pauta
 
