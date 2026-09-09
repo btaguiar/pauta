@@ -123,6 +123,16 @@ jobs:
           set -euo pipefail
           test "$(curl -sf localhost:8000/runs)" = "[]"
 
+      - name: A demo foi empacotada e e servida pela propria API
+        run: |
+          set -euo pipefail
+          curl -sf localhost:8000/demo | grep -q "EventSource"
+
+      - name: O stream recusa uma run que nao existe
+        run: |
+          set -euo pipefail
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8000/runs/sumiu/stream)" = "404"
+
       # A indexação do corpus fica de fora: ela chama embedding de verdade, e a
       # chave desta matriz é falsa de propósito.
 
