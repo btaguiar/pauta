@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Gatilho manual para rodar o eval sob demanda, sem precisar de push.
+  workflow_dispatch:
 
 env:
   # 3.12 e não 3.11 pelo mesmo motivo do pyproject: os stubs que chegam pelo
@@ -148,8 +150,9 @@ jobs:
     name: eval sobre o golden set
     # Este é condicional porque gasta chamada de API paga. Destravar com
     # `gh variable set ENABLE_EVAL --body true` e os segredos preenchidos.
-    # No grifo um job assim ficou atrás de variável e nunca foi ligado. Se este
-    # continuar desligado, o número prometido no README não existe.
+    # A rodada completa (19 tarefas x 3 repetições + juiz) foi medida na casa de
+    # milhões de tokens, por isso o padrão aqui é a rodada rápida do README:
+    # 5 tarefas, 1 repetição. A completa roda local, com `--limit` e `--repeats`.
     if: vars.ENABLE_EVAL == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -182,7 +185,7 @@ jobs:
           EMBEDDING_MODEL: ${{ vars.EMBEDDING_MODEL }}
           JUDGE_MODEL: ${{ vars.JUDGE_MODEL }}
           COST_PER_MTOK_USD: ${{ vars.COST_PER_MTOK_USD }}
-        run: uv run python eval/run_eval.py --judge
+        run: uv run python eval/run_eval.py --judge --limit 5 --repeats 1
 
       - name: Guardar o resultado da rodada
         # Rodada local fica fora do git; a do CI é publicada como artefato.
