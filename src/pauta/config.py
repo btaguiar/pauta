@@ -69,15 +69,18 @@ class Settings(BaseSettings):
     MAX_EMPTY_RESEARCH: int = Field(default=2, gt=0)
     BUDGET_TOKENS_PER_RUN: int = Field(default=60_000, gt=0)
     # Um teto por papel, porque o trabalho de cada nó tem duração diferente.
-    # Medido em 2026-09-08 contra os modelos do `.env`, em execuções reais:
-    # supervisor 1,4 a 2,0s; research 10 a 17s sobre o corpus e 61s com busca
-    # web; critic 1,5 a 18s; writer 6 a 10s. O research é o menos previsível dos
-    # cinco, e uma run chegou a estourar 90s, que era o teto anterior.
-    NODE_TIMEOUT_SUPERVISOR_S: float = Field(default=20.0, gt=0)
-    NODE_TIMEOUT_RESEARCH_S: float = Field(default=180.0, gt=0)
-    NODE_TIMEOUT_WRITER_S: float = Field(default=45.0, gt=0)
-    NODE_TIMEOUT_CRITIC_S: float = Field(default=45.0, gt=0)
-    NODE_TIMEOUT_ANALYST_S: float = Field(default=90.0, gt=0)
+    # Medido em 2026-09-26 contra o gateway de chat atual (Model Studio da
+    # Alibaba; supervisor glm-5.3, workers qwen3.6-flash), em execuções reais do
+    # golden set: supervisor 2,8 a 10,7s; research completou em torno de 130s
+    # com busca web, depois de estourar o teto de 90s do gateway anterior;
+    # analyst estourou 90s; critic estourou 45s. Writer não foi medido neste
+    # gateway: 120s é estimativa com folga sobre a medição antiga (6 a 10s),
+    # não número medido.
+    NODE_TIMEOUT_SUPERVISOR_S: float = Field(default=30.0, gt=0)
+    NODE_TIMEOUT_RESEARCH_S: float = Field(default=240.0, gt=0)
+    NODE_TIMEOUT_WRITER_S: float = Field(default=120.0, gt=0)
+    NODE_TIMEOUT_CRITIC_S: float = Field(default=150.0, gt=0)
+    NODE_TIMEOUT_ANALYST_S: float = Field(default=240.0, gt=0)
     NODE_RETRIES: int = Field(default=2, ge=0)
     # Sem teto, um agente com tool entra em loop de chamadas sozinho.
     MAX_TOOL_ROUNDS: int = Field(default=3, gt=0)
