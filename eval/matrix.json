@@ -1,48 +1,41 @@
 {
-  "sobre": "Configurações comparadas por eval/matrix.py. Preencha os ids com o nome completo do gateway, com a casa de origem no nome. Vazio de propósito: nenhum modelo tem default no código (ADR 007). A primeira configuração é a linha de base, e os deltas saem contra ela. MAX_CRITIC_LOOPS é opcional por linha; ausente, vale o do .env.",
+  "sobre": "Configurações comparadas por eval/matrix.py. Os ids são os nomes nus do gateway de chat, sem a casa de origem (qwen3.6-flash, qwen3.8-max, glm-5.3), medidos em 2026-09-25 pela própria API. Esta é a matriz medida, versionada para que o eval publicado seja reproduzível; rodar é comando deliberado de quem tem a própria chave, e nenhum modelo tem default no código (ADR 007). A primeira configuração é a linha de base, e os deltas saem contra ela. O supervisor é glm-5.3 em todas as linhas, decisão de 2026-09-26: o que a matriz mede é critic e worker. MAX_CRITIC_LOOPS é opcional por linha; ausente, vale o do .env.",
   "configuracoes": [
     {
-      "nome": "tudo-barato",
-      "nota": "linha de base. Se ela empatar com as outras, o modelo caro não se paga.",
-      "MODEL_ROUTER": "",
-      "MODEL_CRITIC": "",
-      "MODEL_WORKER": ""
+      "nome": "base-barata",
+      "nota": "linha de base: worker e critic no flash barato. Se ela empatar com as outras, o modelo caro não se paga.",
+      "MODEL_ROUTER": "glm-5.3",
+      "MODEL_CRITIC": "qwen3.6-flash",
+      "MODEL_WORKER": "qwen3.6-flash"
     },
     {
       "nome": "sem-critico",
-      "nota": "os mesmos modelos da tudo-barato, com o crítico desligado. A diferença entre esta linha e a base é o que o crítico barato compra. Junto com critico-melhor, fecha as três condições: sem crítico, crítico barato, crítico melhor.",
-      "MODEL_ROUTER": "",
-      "MODEL_CRITIC": "",
-      "MODEL_WORKER": "",
+      "nota": "os mesmos modelos da base-barata, com o crítico desligado. A diferença entre esta linha e a base é o que o crítico barato compra. Junto com critico-melhor, fecha as três condições: sem crítico, crítico barato, crítico melhor.",
+      "MODEL_ROUTER": "glm-5.3",
+      "MODEL_CRITIC": "qwen3.6-flash",
+      "MODEL_WORKER": "qwen3.6-flash",
       "MAX_CRITIC_LOOPS": "0"
-    },
-    {
-      "nome": "router-melhor",
-      "nota": "testa se roteamento degrada em modelo pequeno. O codigo ja corrige a decisao do router, entao a hipotese e que nao degrada.",
-      "MODEL_ROUTER": "",
-      "MODEL_CRITIC": "",
-      "MODEL_WORKER": ""
     },
     {
       "nome": "critico-melhor",
       "nota": "o teste que mais importa. Critico fraco tende a carimbar verdict ok, e ai o loop de critica inteiro vira enfeite (ADR 002).",
-      "MODEL_ROUTER": "",
-      "MODEL_CRITIC": "",
-      "MODEL_WORKER": ""
+      "MODEL_ROUTER": "glm-5.3",
+      "MODEL_CRITIC": "qwen3.8-max",
+      "MODEL_WORKER": "qwen3.6-flash"
     },
     {
       "nome": "worker-melhor",
-      "nota": "pesquisa e redacao com modelo melhor, roteamento e critica baratos.",
-      "MODEL_ROUTER": "",
-      "MODEL_CRITIC": "",
-      "MODEL_WORKER": ""
+      "nota": "pesquisa, analise e redacao com modelo melhor, critica barata.",
+      "MODEL_ROUTER": "glm-5.3",
+      "MODEL_CRITIC": "qwen3.6-flash",
+      "MODEL_WORKER": "qwen3.8-max"
     },
     {
       "nome": "tudo-melhor",
       "nota": "teto de qualidade e de custo. Serve para saber quanto se perde economizando.",
-      "MODEL_ROUTER": "",
-      "MODEL_CRITIC": "",
-      "MODEL_WORKER": ""
+      "MODEL_ROUTER": "glm-5.3",
+      "MODEL_CRITIC": "qwen3.8-max",
+      "MODEL_WORKER": "qwen3.8-max"
     }
   ]
 }

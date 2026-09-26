@@ -90,17 +90,25 @@ def test_a_missing_file_says_where_it_looked(tmp_path: Path) -> None:
         matrix.load_spec(tmp_path / "nao-existe.json")
 
 
-def test_the_versioned_spec_is_a_template_nobody_can_run_by_accident() -> None:
-    """`matrix.json` vai versionado vazio, pelo mesmo motivo do `.env.example`."""
-    with pytest.raises(InvalidSpec, match="em branco"):
-        matrix.load_spec(REPO_ROOT / "eval" / "matrix.json")
+def test_the_versioned_spec_carries_the_measured_experiment() -> None:
+    """A matriz versionada registra o experimento medido de 2026-09-26.
+
+    Id de modelo não é segredo, e versionar a escolha permite reproduzir o eval
+    publicado. Rodar a matriz segue sendo um comando deliberado de quem tem a
+    própria chave; nenhum modelo ganha default no código (ADR 007).
+    """
+    configurations = matrix.load_spec(REPO_ROOT / "eval" / "matrix.json")
+    routers = {item.models["MODEL_ROUTER"] for item in configurations}
+    assert len(routers) == 1, "o supervisor é fixo em todas as linhas (decisão de 2026-09-26)"
+    workers = {item.models["MODEL_WORKER"] for item in configurations}
+    assert len(workers) >= 2, "a matriz só mede alguma coisa se o worker variar"
 
 
 def test_the_versioned_spec_varies_one_role_at_a_time() -> None:
     raw = json.loads((REPO_ROOT / "eval" / "matrix.json").read_text(encoding="utf-8"))
     names = [entry["nome"] for entry in raw["configuracoes"]]
-    assert names[0] == "tudo-barato", "a primeira linha é a base dos deltas"
-    assert {"router-melhor", "critico-melhor", "worker-melhor"} <= set(names)
+    assert names[0] == "base-barata", "a primeira linha é a base dos deltas"
+    assert {"critico-melhor", "worker-melhor", "tudo-melhor"} <= set(names)
     assert all(entry.get("nota") for entry in raw["configuracoes"])
 
 
@@ -110,7 +118,7 @@ def test_the_versioned_spec_carries_the_three_critic_conditions() -> None:
     raw = json.loads((REPO_ROOT / "eval" / "matrix.json").read_text(encoding="utf-8"))
     by_name = {entry["nome"]: entry for entry in raw["configuracoes"]}
     assert by_name["sem-critico"]["MAX_CRITIC_LOOPS"] == "0"
-    assert "MAX_CRITIC_LOOPS" not in by_name["tudo-barato"]
+    assert "MAX_CRITIC_LOOPS" not in by_name["base-barata"]
     assert "MAX_CRITIC_LOOPS" not in by_name["critico-melhor"]
 
 
