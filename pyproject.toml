@@ -30,6 +30,9 @@ dev = [
     "ruff>=0.16.5,<0.17",
     "mypy>=2.3.1,<3",
     "httpx>=0.28,<0.29",
+    # Faixa aberta para cima porque 2.3+ exige Python 3.12: em 3.11 o resolver
+    # cai na 2.2.x, que ainda serve. O benchmark usa API estável das duas.
+    "numpy>=2.2,<3",
 ]
 
 [build-system]
