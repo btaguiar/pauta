@@ -324,7 +324,7 @@ def write_matrix(results: list[ConfigurationResult], *, repeats: int, limit: int
 
 MISSING_CONFIG_MESSAGE = """Falta configuração para rodar a matriz.
 
-Copie .env.example para .env e preencha OPENROUTER_API_KEY e EMBEDDING_MODEL.
+Copie .env.example para .env e preencha CHAT_API_KEY e EMBEDDING_MODEL.
 Os três modelos de papel vêm de eval/matrix.json, uma linha por configuração.
 
 Detalhe: {detail}

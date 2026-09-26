@@ -36,7 +36,7 @@ def model_name_for(role: Role) -> str:
 
 
 class MissingGatewayKey(RuntimeError):
-    """`OPENROUTER_API_KEY` não está no ambiente."""
+    """`CHAT_API_KEY` não está no ambiente."""
 
 
 @lru_cache
@@ -48,14 +48,14 @@ def get_model(role: Role) -> BaseChatModel:
     adivinhar a partir do prefixo daria no provider errado.
     """
     settings = get_settings()
-    if not settings.OPENROUTER_API_KEY:
-        raise MissingGatewayKey("OPENROUTER_API_KEY não definida; nenhum modelo pode ser criado")
+    if not settings.CHAT_API_KEY:
+        raise MissingGatewayKey("CHAT_API_KEY não definida; nenhum modelo pode ser criado")
     return init_chat_model(
         model_name_for(role),
         model_provider="openai",
         temperature=0,
-        base_url=settings.OPENROUTER_BASE_URL,
-        api_key=settings.OPENROUTER_API_KEY,
+        base_url=settings.CHAT_BASE_URL,
+        api_key=settings.CHAT_API_KEY,
     )
 
 

@@ -77,7 +77,7 @@ def test_get_model_is_cached_per_role(monkeypatch: pytest.MonkeyPatch) -> None:
         calls.append(model)
         return object()
 
-    monkeypatch.setenv("OPENROUTER_API_KEY", "chave-de-teste")
+    monkeypatch.setenv("CHAT_API_KEY", "chave-de-teste")
     monkeypatch.setattr("pauta.models.init_chat_model", fake_init)
     from pauta.config import get_settings
 
@@ -97,7 +97,7 @@ def test_the_gateway_is_wired_explicitly(monkeypatch: pytest.MonkeyPatch) -> Non
         seen["model"] = model
         return object()
 
-    monkeypatch.setenv("OPENROUTER_API_KEY", "chave-de-teste")
+    monkeypatch.setenv("CHAT_API_KEY", "chave-de-teste")
     monkeypatch.setattr("pauta.models.init_chat_model", fake_init)
     from pauta.config import get_settings
 
@@ -111,10 +111,10 @@ def test_the_gateway_is_wired_explicitly(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_no_key_fails_before_any_call(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("CHAT_API_KEY", raising=False)
     from pauta.config import get_settings
 
     get_settings.cache_clear()
     reset_model_cache()
-    with pytest.raises(MissingGatewayKey, match="OPENROUTER_API_KEY"):
+    with pytest.raises(MissingGatewayKey, match="CHAT_API_KEY"):
         get_model("writer")

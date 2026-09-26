@@ -73,12 +73,12 @@ def sqlalchemy_url(database_url: str) -> str:
 def get_embeddings(settings: Settings | None = None) -> OpenAIEmbeddings:
     """Embeddings pelo mesmo gateway dos modelos de chat."""
     resolved = settings or get_settings()
-    if not resolved.OPENROUTER_API_KEY:
-        raise MissingGatewayKey("OPENROUTER_API_KEY não definida; sem embeddings não há índice")
+    if not resolved.CHAT_API_KEY:
+        raise MissingGatewayKey("CHAT_API_KEY não definida; sem embeddings não há índice")
     return OpenAIEmbeddings(
         model=resolved.EMBEDDING_MODEL,
-        base_url=resolved.OPENROUTER_BASE_URL,
-        api_key=resolved.OPENROUTER_API_KEY,  # type: ignore[arg-type]  # aceita str
+        base_url=resolved.CHAT_BASE_URL,
+        api_key=resolved.CHAT_API_KEY,  # type: ignore[arg-type]  # aceita str
         check_embedding_ctx_length=False,
     )
 

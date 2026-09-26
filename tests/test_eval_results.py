@@ -16,7 +16,7 @@ SECRET = "sk-um-segredo-que-nunca-pode-vazar"
 def settings() -> Settings:
     return get_settings().model_copy(
         update={
-            "OPENROUTER_API_KEY": SECRET,
+            "CHAT_API_KEY": SECRET,
             "TAVILY_API_KEY": SECRET,
             "LANGSMITH_API_KEY": SECRET,
             "DATABASE_URL": f"postgresql://user:{SECRET}@localhost:5432/pauta",

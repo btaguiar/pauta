@@ -35,8 +35,8 @@ class Settings(BaseSettings):
     # Acesso aos modelos via gateway OpenRouter, que fala o protocolo da OpenAI.
     # Uma chave, vários providers, e o juiz do eval pode ser de outra casa sem
     # exigir uma segunda conta.
-    OPENROUTER_API_KEY: str | None = None
-    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    CHAT_API_KEY: str | None = None
+    CHAT_BASE_URL: str = "https://openrouter.ai/api/v1"
     TAVILY_API_KEY: str | None = None
 
     # Banco. Valor de desenvolvimento idêntico ao do docker-compose.yml.
@@ -89,7 +89,7 @@ class Settings(BaseSettings):
     @field_validator(
         "COST_PER_MTOK_USD",
         "JUDGE_MODEL",
-        "OPENROUTER_API_KEY",
+        "CHAT_API_KEY",
         "TAVILY_API_KEY",
         "LANGSMITH_API_KEY",
         mode="before",

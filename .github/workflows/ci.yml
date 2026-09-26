@@ -100,8 +100,8 @@ jobs:
         # tem precedência ambígua, e aqui o valor precisa ser o que está escrito.
         run: |
           cat > .env <<'ENV'
-          OPENROUTER_API_KEY=ci-nunca-chama-provider
-          OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+          CHAT_API_KEY=ci-nunca-chama-provider
+          CHAT_BASE_URL=https://openrouter.ai/api/v1
           MODEL_WORKER=fake/worker
           MODEL_ROUTER=fake/router
           MODEL_CRITIC=fake/critic
@@ -167,7 +167,7 @@ jobs:
 
       - name: Calibrar o juiz antes de confiar nele
         env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CHAT_API_KEY: ${{ secrets.CHAT_API_KEY }}
           MODEL_WORKER: ${{ vars.MODEL_WORKER }}
           MODEL_ROUTER: ${{ vars.MODEL_ROUTER }}
           MODEL_CRITIC: ${{ vars.MODEL_CRITIC }}
@@ -177,7 +177,7 @@ jobs:
 
       - name: Rodar o golden set sem as tarefas que exigem corpus
         env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CHAT_API_KEY: ${{ secrets.CHAT_API_KEY }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           MODEL_WORKER: ${{ vars.MODEL_WORKER }}
           MODEL_ROUTER: ${{ vars.MODEL_ROUTER }}

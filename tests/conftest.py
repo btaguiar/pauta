@@ -21,7 +21,7 @@ REQUIRED_ENV = {
 def isolated_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Isola o ambiente do `.env` da máquina e limpa o cache de settings."""
     for key in list(os.environ):
-        if key.startswith(("MODEL_", "LANGSMITH_", "EMBEDDING_", "JUDGE_", "OPENROUTER_")):
+        if key.startswith(("MODEL_", "LANGSMITH_", "EMBEDDING_", "JUDGE_", "CHAT_")):
             monkeypatch.delenv(key, raising=False)
     for key, value in REQUIRED_ENV.items():
         monkeypatch.setenv(key, value)

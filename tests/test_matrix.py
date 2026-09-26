@@ -283,7 +283,7 @@ def test_the_matrix_artifact_carries_no_secret(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     secret = "sk-nunca-pode-vazar"
-    monkeypatch.setenv("OPENROUTER_API_KEY", secret)
+    monkeypatch.setenv("CHAT_API_KEY", secret)
     monkeypatch.setattr(matrix, "RESULTS_DIR", tmp_path)
     get_settings.cache_clear()
 
