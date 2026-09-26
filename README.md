@@ -114,10 +114,15 @@ o código corrige a decisão dele antes de aplicá-la. As sete ADRs estão em
   serem inequívocos. Um conjunto sem caso difícil superestima a concordância.
 - `incerteza_sinalizada` é casamento de marcador de texto, não compreensão.
 - O corpus tem 6 documentos e 22 chunks. Pequeno demais para generalizar.
-- A API não faz streaming. O contrato prevê `GET /runs/{id}/stream` por SSE, e
-  ele não existe, então a demo que mostraria os eventos ao vivo também não.
-- O rate limit conta na memória do processo. Duas réplicas seriam dois
-  limitadores, e o teto efetivo dobraria.
+- O stream não guarda histórico. Quem abre `GET /runs/{id}/stream` no meio da
+  run vê os eventos dali em diante. Quem abre depois do fim recebe só o status
+  e os tokens gastos.
+- O briefing chega inteiro no stream, de uma vez. O tipo `token` do contrato
+  nunca é emitido, e o interrupt aparece como o fim da run com
+  `status: interrupted`, sem evento `interrupt` próprio.
+- O rate limit e o stream vivem na memória do processo. Com duas réplicas, o
+  teto efetivo dobraria, e um cliente só veria as runs executadas pela réplica
+  em que conectou.
 - O teto diário só protege quando `COST_PER_MTOK_USD` está preenchido. Vazio,
   `GET /health` responde `budget_enforceable: false`, e é literalmente isso.
 - A busca web depende da Tavily. Sem `TAVILY_API_KEY`, o research fica só com o
