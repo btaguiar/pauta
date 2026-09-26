@@ -8,6 +8,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 HitlMode = Literal["auto", "interrupt"]
 
+#: Gateway dos modelos de chat: Model Studio da Alibaba, em modo compatível com
+#: o protocolo da OpenAI. Serve três casas, Qwen, GLM e DeepSeek, então o juiz de
+#: outro provider que o eval exige é uma troca de id, não uma segunda conta.
+CHAT_GATEWAY_URL = "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+
+#: Gateway dos embeddings, separado porque o de chat não serve nenhum. Medido em
+#: 2026-09-25: `/embeddings` devolve 404 para `text-embedding-v4`,
+#: `text-embedding-v3` e `text-embedding-3-small`. Naquele gateway 404 é também
+#: como um modelo de chat fora do plano é recusado, então a leitura é "não está
+#: no plano", e a lista de `/models` não traz embedding nenhum (ADR 005).
+EMBEDDING_GATEWAY_URL = "https://openrouter.ai/api/v1"
+
 
 class Settings(BaseSettings):
     """Configuração lida do ambiente, com espelho vazio em `.env.example`.
@@ -32,11 +44,13 @@ class Settings(BaseSettings):
     # Juiz do eval. A credencial vem da variável padrão do provider dele.
     JUDGE_MODEL: str | None = None
 
-    # Acesso aos modelos via gateway OpenRouter, que fala o protocolo da OpenAI.
-    # Uma chave, vários providers, e o juiz do eval pode ser de outra casa sem
-    # exigir uma segunda conta.
+    # Dois gateways, os dois falando o protocolo da OpenAI, cada um com a sua
+    # chave. Chat e embedding só coincidiriam se o mesmo gateway servisse os
+    # dois, e este não serve.
     CHAT_API_KEY: str | None = None
-    CHAT_BASE_URL: str = "https://openrouter.ai/api/v1"
+    CHAT_BASE_URL: str = CHAT_GATEWAY_URL
+    EMBEDDING_API_KEY: str | None = None
+    EMBEDDING_BASE_URL: str = EMBEDDING_GATEWAY_URL
     TAVILY_API_KEY: str | None = None
 
     # Banco. Valor de desenvolvimento idêntico ao do docker-compose.yml.

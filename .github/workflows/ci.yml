@@ -101,7 +101,9 @@ jobs:
         run: |
           cat > .env <<'ENV'
           CHAT_API_KEY=ci-nunca-chama-provider
-          CHAT_BASE_URL=https://openrouter.ai/api/v1
+          CHAT_BASE_URL=https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1
+          EMBEDDING_API_KEY=ci-nunca-chama-provider
+          EMBEDDING_BASE_URL=https://openrouter.ai/api/v1
           MODEL_WORKER=fake/worker
           MODEL_ROUTER=fake/router
           MODEL_CRITIC=fake/critic
@@ -178,6 +180,7 @@ jobs:
       - name: Rodar o golden set sem as tarefas que exigem corpus
         env:
           CHAT_API_KEY: ${{ secrets.CHAT_API_KEY }}
+          EMBEDDING_API_KEY: ${{ secrets.EMBEDDING_API_KEY }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           MODEL_WORKER: ${{ vars.MODEL_WORKER }}
           MODEL_ROUTER: ${{ vars.MODEL_ROUTER }}

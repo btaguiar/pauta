@@ -133,7 +133,7 @@ o código corrige a decisão dele antes de aplicá-la. As sete ADRs estão em
 Tudo em container, que é o caminho de quem só quer ver funcionando:
 
 ```
-cp .env.example .env      # preencha OPENROUTER_API_KEY e os três MODEL_*
+cp .env.example .env      # preencha as duas chaves e os três MODEL_*
 docker compose up -d --build
 docker compose run --rm index      # indexa samples/, opcional
 

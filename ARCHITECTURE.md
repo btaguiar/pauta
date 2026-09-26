@@ -97,7 +97,8 @@ custo de habilitar a extensão e escrever a query de similaridade.
 **Consequência.** Um storage no diagrama, não dois. O teste do retriever passa a
 precisar de Postgres, então ele fica marcado e é pulado quando não há banco. O
 embedding é `text-embedding-3-small`, declarado em `EMBEDDING_MODEL`, nunca
-implícito no código.
+implícito no código, e vem de um gateway próprio: o gateway de chat não serve
+embedding, como a ADR 007 registra.
 
 ### ADR 006: recuperação explícita, nunca automática
 
@@ -117,17 +118,26 @@ fazem raciocínio. Modelo barato em tudo sabota o experimento central do projeto
 porque crítico fraco tende a carimbar `verdict: ok`.
 
 **Decisão.** Toda instanciação passa por `get_model(role)`, com `init_chat_model` e
-variáveis de ambiente. Nenhum default no código. O acesso é por um gateway,
-OpenRouter, que fala o protocolo da OpenAI: o id do modelo carrega a casa de origem
-(`openai/gpt-...`, `anthropic/claude-...`) e a chave é uma só.
+variáveis de ambiente. Nenhum default no código. O acesso é por gateway que fala o
+protocolo da OpenAI. O de chat é o Model Studio da Alibaba, em `CHAT_BASE_URL`, e
+serve três casas: Qwen, GLM e DeepSeek.
 
-**Consequência.** Trocar de provider é editar `.env`. O eval ganha um terceiro eixo,
+**Consequência.** Trocar de modelo é editar `.env`. O eval ganha um terceiro eixo,
 crítico barato contra crítico melhor. O juiz de outro provider, que a metodologia
-exige para evitar auto-preferência, deixa de precisar de uma segunda conta e vira
-uma troca de id. O `model_provider` é passado explícito como `openai` porque o id do
-gateway começa com o nome da casa de origem, e deixar o LangChain inferir daria no
-provider errado. O preço fica em duas casas, a tabela do gateway e a do provider, e
-o número que vale para o eval é o que o gateway cobra.
+exige para evitar auto-preferência, é uma troca de id na mesma chave, porque as três
+casas estão no mesmo gateway. O `model_provider` é passado explícito como `openai`
+porque o id deste gateway é nu, sem a casa de origem no nome (`qwen3.8-flash`,
+`glm-5.3`), então não há prefixo de onde o LangChain deduzir o provider. O preço fica
+na tabela do gateway, e é esse o número que vale para o eval.
+
+**O que este gateway não faz.** Embedding. Medido em 2026-09-25: a lista de
+`/models` traz 11 modelos de texto, 2 de imagem e 2 de áudio, e nenhum de embedding;
+`/embeddings` recusa `text-embedding-v4`, `text-embedding-v3` e
+`text-embedding-3-small`. Vale a ressalva de método: naquele gateway o 404 é também
+como um modelo de chat fora do plano é recusado, então o que está medido é "não está
+neste plano", não "a rota não existe". Por isso o embedding tem gateway e chave
+próprios, em `EMBEDDING_BASE_URL` e `EMBEDDING_API_KEY`. São duas chaves para manter
+o índice do corpus independente do plano de chat.
 
 ## APIs do LangGraph que este projeto usa
 

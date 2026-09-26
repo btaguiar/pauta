@@ -78,7 +78,8 @@ A escala é binária, sim ou não. Escala de 1 a 5 tem âncora instável entre
 execuções e entre modelos, e a média de notas instáveis parece precisa sem ser.
 
 O juiz vem de `JUDGE_MODEL`, que precisa apontar para um provider diferente do
-executor. Modelo que julga a própria saída se prefere.
+executor. Modelo que julga a própria saída se prefere. O gateway de chat serve
+Qwen, GLM e DeepSeek, então essa exigência é uma troca de id na mesma chave.
 
 Juiz que falha devolve "não julgado", que não é o mesmo que "não sustentado".
 Um juiz fora do ar não é evidência de briefing ruim.

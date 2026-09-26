@@ -1,10 +1,11 @@
 """Modelo por papel (ADR 007). Nenhum agente instancia cliente."""
 
 from functools import lru_cache
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
-from langchain.chat_models import init_chat_model
-from langchain_core.language_models import BaseChatModel
+from langchain_core.runnables import Runnable
+from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
 
 from .config import get_settings
 
@@ -23,6 +24,23 @@ ROLE_ENV: dict[Role, str] = {
     "judge": "JUDGE_MODEL",
 }
 
+#: Como cada modelo medido aceita saída estruturada no gateway de chat. Sonda
+#: de 2026-09-26: qwen3.8-max recusa `tool_choice=required` e só honra
+#: `response_format` com `json_schema`; glm-5.3 e qwen3.6-flash honram
+#: `function_calling`. Isto é capacidade medida do id, não escolha de modelo:
+#: a escolha continua vindo do ambiente. Id fora da tabela usa
+#: `function_calling`, que é o método que o gateway aceita em mais modelos.
+STRUCTURED_METHOD_BY_MODEL: dict[str, str] = {
+    "glm-5.3": "function_calling",
+    "qwen3.6-flash": "function_calling",
+    "qwen3.8-max": "json_schema",
+}
+
+
+def structured_method_for(model: str) -> str:
+    """O método de saída estruturada medido para o id, ou o mais compatível."""
+    return STRUCTURED_METHOD_BY_MODEL.get(model, "function_calling")
+
 
 def model_name_for(role: Role) -> str:
     """Nome do modelo configurado para o papel, direto do ambiente."""
@@ -39,23 +57,56 @@ class MissingGatewayKey(RuntimeError):
     """`CHAT_API_KEY` não está no ambiente."""
 
 
+class GatewayChatModel(ChatOpenAI):
+    """`ChatOpenAI` para o gateway, com o método estruturado medido por id.
+
+    O `with_structured_output` de `ChatOpenAI` assume que o destino honra a API
+    da OpenAI inteira, e o gateway não honra: um mesmo plano serve modelos que
+    só aceitam `json_schema` e modelos que só aceitam `function_calling`. Aqui
+    o default de `method` é o medido para o próprio id; quem chama pode passar
+    `method=` explícito e vencer a tabela.
+    """
+
+    structured_method: str = "function_calling"
+
+    def with_structured_output(
+        self,
+        schema: Any = None,
+        *,
+        method: str | None = None,
+        include_raw: bool = False,
+        strict: bool | None = None,
+        tools: list[Any] | None = None,
+        **kwargs: Any,
+    ) -> Runnable[Any, Any]:
+        return super().with_structured_output(
+            schema,
+            method=method or self.structured_method,  # type: ignore[arg-type]
+            include_raw=include_raw,
+            strict=strict,
+            tools=tools,
+            **kwargs,
+        )
+
+
 @lru_cache
-def get_model(role: Role) -> BaseChatModel:
+def get_model(role: Role) -> GatewayChatModel:
     """Instância única por papel, com `temperature=0` para o eval ser reprodutível.
 
-    O provider é declarado, nunca inferido: os ids do gateway trazem a casa de
-    origem no próprio nome (`openai/...`, `anthropic/...`) e deixar o LangChain
-    adivinhar a partir do prefixo daria no provider errado.
+    O provider é declarado, nunca inferido: os ids deste gateway são nus
+    (`qwen3.8-flash`, `glm-5.3`, `deepseek-v4-pro`), sem a casa de origem no
+    nome, então não há prefixo de onde o LangChain deduzir coisa alguma.
     """
     settings = get_settings()
     if not settings.CHAT_API_KEY:
         raise MissingGatewayKey("CHAT_API_KEY não definida; nenhum modelo pode ser criado")
-    return init_chat_model(
-        model_name_for(role),
-        model_provider="openai",
+    name = model_name_for(role)
+    return GatewayChatModel(
+        model=name,
         temperature=0,
         base_url=settings.CHAT_BASE_URL,
-        api_key=settings.CHAT_API_KEY,
+        api_key=SecretStr(settings.CHAT_API_KEY),
+        structured_method=structured_method_for(name),
     )
 
 

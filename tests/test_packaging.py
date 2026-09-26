@@ -11,6 +11,8 @@ commit. Isto é essa regra virando teste.
 import re
 from pathlib import Path
 
+from pauta.config import CHAT_GATEWAY_URL, EMBEDDING_GATEWAY_URL
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 COMPOSE = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 DOCKERFILE = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
@@ -131,3 +133,25 @@ def test_the_demo_needs_no_build_and_no_cdn() -> None:
     page = (REPO_ROOT / "demo" / "index.html").read_text(encoding="utf-8")
     assert "<script src=" not in page
     assert "https://" not in page.split("<script>")[1]
+
+
+def test_the_env_example_mirrors_the_gateway_defaults() -> None:
+    """Gateway trocado no código e esquecido no exemplo manda quem clonou para o
+    endpoint antigo com a chave nova, e o erro que volta fala de autenticação."""
+    assert f"CHAT_BASE_URL={CHAT_GATEWAY_URL}" in ENV_EXAMPLE
+    assert f"EMBEDDING_BASE_URL={EMBEDDING_GATEWAY_URL}" in ENV_EXAMPLE
+
+
+def test_the_example_asks_for_both_keys() -> None:
+    """Chat e embedding estão em gateways distintos, então são duas chaves."""
+    assert "CHAT_API_KEY=" in ENV_EXAMPLE
+    assert "EMBEDDING_API_KEY=" in ENV_EXAMPLE
+
+
+def test_the_ci_env_block_declares_the_same_variables_the_example_does() -> None:
+    """O CI escreve o `.env` do zero. Variável nova no exemplo e esquecida lá
+    derruba o job de imagem com erro de validação, não com erro de rede."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    block = workflow.split("cat > .env <<'ENV'")[1].split("\nENV")[0]
+    for name in ("CHAT_API_KEY", "CHAT_BASE_URL", "EMBEDDING_API_KEY", "EMBEDDING_BASE_URL"):
+        assert f"{name}=" in block, f"o .env do CI não declara {name}"
