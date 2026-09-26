@@ -194,6 +194,21 @@ def test_the_helper_closes_every_call_it_was_given() -> None:
     assert "orçamento" in closed[0].content
 
 
+async def test_a_broken_extraction_becomes_an_event_not_a_crash(
+    settings: Settings, captured: io.StringIO
+) -> None:
+    """Medido no gateway em 2026-09-26: modelo devolveu JSON fora do schema e o
+    ValidationError do extrator derrubou a run inteira. Parse quebrado registra
+    zero descobertas e a run continua."""
+    model = FakeChatModel(responses=["pronto", ValueError("json fora do schema")])
+    node = make_research_node(model, [], settings)
+    result = await node(state_with())
+    assert result["findings"] == []
+    assert result["empty_research"] == 1
+    errors = [event for event in events(captured) if event["event"] == "error"]
+    assert any("extração estruturada falhou" in str(event.get("error", "")) for event in errors)
+
+
 async def test_a_budget_stop_leaves_no_tool_call_unanswered(settings: Settings) -> None:
     """Foi assim que uma run real morreu com 400 depois de gastar 58 mil tokens."""
     broke = settings.model_copy(update={"BUDGET_TOKENS_PER_RUN": 1})

@@ -94,7 +94,14 @@ def make_analyst_node(
                 history.extend(await run_tools(tools, reply, node="analyst", run_id=run_id))
 
             history.append(HumanMessage(EXTRACTION_PROMPT))
-            result = await extractor.ainvoke(history)
+            try:
+                result = await extractor.ainvoke(history)
+            except ValueError:
+                # ValidationError herda de ValueError. Medido no gateway em
+                # 2026-09-26: JSON fora do schema aqui derrubava a run inteira.
+                # Erro de validação não se retenta (regra do dossiê): vira
+                # evento e zero resultados, e o supervisor decide o resto.
+                result = None
             if isinstance(result, dict):
                 tokens += tokens_from(result.get("raw"))
                 parsed = result.get("parsed")
