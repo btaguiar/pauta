@@ -8,6 +8,10 @@ hipótese do projeto é que router barato não custa qualidade. O crítico é o
 oposto: crítico fraco tende a carimbar `verdict: ok`, e aí o loop de crítica
 inteiro vira enfeite. Isto aqui mede as duas coisas em vez de supor.
 
+A mesma lógica pede uma linha sem crítico nenhum: sem ela não há como saber se o
+loop de crítica compra alguma coisa, com crítico barato ou caro. Por isso uma
+configuração pode trazer `MAX_CRITIC_LOOPS`, e zero desliga o crítico.
+
 Cada configuração roda o mesmo conjunto de tarefas, com a mesma semente de
 repetições, e o resultado sai lado a lado com o delta contra a linha de base.
 
@@ -19,7 +23,8 @@ import argparse
 import json
 import os
 import sys
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -50,6 +55,16 @@ DEFAULT_SPEC = REPO_ROOT / "eval" / "matrix.json"
 #: diferentes em vez de modelos diferentes.
 TUNABLE = ("MODEL_ROUTER", "MODEL_CRITIC", "MODEL_WORKER")
 
+#: O que uma configuração pode trocar além dos modelos, se quiser. Ausente, vale
+#: o do `.env`. Só o limite do crítico: é o que a condição "sem crítico" precisa,
+#: e cada chave a mais aqui é um eixo a mais para confundir com o efeito do modelo.
+OPTIONAL = ("MAX_CRITIC_LOOPS",)
+
+#: Tudo que uma linha da matriz pode ter. Chave fora daqui é recusada, porque um
+#: `MAX_CRITIC_LOOP` digitado errado seria ignorado em silêncio, e a linha "sem
+#: crítico" rodaria com crítico, gastando dinheiro para medir a coisa errada.
+KNOWN_KEYS = frozenset({"nome", "nota", *TUNABLE, *OPTIONAL})
+
 #: As métricas que entram na tabela, na ordem em que decidem.
 COMPARED = (
     "cobertura",
@@ -69,21 +84,27 @@ class InvalidSpec(ValueError):
 
 @dataclass(frozen=True)
 class Configuration:
-    """Uma linha da matriz: um nome e os modelos que ela usa."""
+    """Uma linha da matriz: um nome, os modelos que ela usa e o que mais troca."""
 
     name: str
     models: dict[str, str]
     notes: str = ""
+    limits: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
 class ConfigurationResult:
-    """O que uma configuração produziu sobre o golden set."""
+    """O que uma configuração produziu sobre o golden set.
+
+    `limits` guarda o valor efetivo, não o que a linha pediu: uma linha que não
+    fala do crítico rodou com o do `.env`, e o artefato precisa dizer qual era.
+    """
 
     name: str
     models: dict[str, str]
     notes: str
     metrics: dict[str, Any]
+    limits: dict[str, int] = field(default_factory=dict)
 
 
 def load_spec(path: Path) -> list[Configuration]:
@@ -108,6 +129,12 @@ def load_spec(path: Path) -> list[Configuration]:
         if name in seen:
             raise InvalidSpec(f"nome repetido na matriz: {name!r}")
         seen.add(name)
+        unknown = sorted(set(entry) - KNOWN_KEYS)
+        if unknown:
+            raise InvalidSpec(
+                f"a configuração {name!r} tem chave desconhecida: {', '.join(unknown)}; "
+                f"as aceitas são {', '.join(sorted(KNOWN_KEYS))}"
+            )
         models = {key: str(entry.get(key, "")).strip() for key in TUNABLE}
         missing = sorted(key for key, value in models.items() if not value)
         if missing:
@@ -116,33 +143,82 @@ def load_spec(path: Path) -> list[Configuration]:
                 f"preencha {path.name} antes de rodar a matriz"
             )
         configurations.append(
-            Configuration(name=name, models=models, notes=str(entry.get("nota", "")))
+            Configuration(
+                name=name,
+                models=models,
+                notes=str(entry.get("nota", "")),
+                limits=_limits_of(name, entry),
+            )
         )
     return configurations
 
 
-def apply_configuration(configuration: Configuration) -> None:
+def _limits_of(name: str, entry: dict[str, Any]) -> dict[str, str]:
+    """Os limites opcionais que a linha fixa. Em branco conta como ausente."""
+    limits: dict[str, str] = {}
+    for key in OPTIONAL:
+        value = str(entry.get(key, "")).strip()
+        if not value:
+            continue
+        # `isascii` porque `isdigit` aceita "²", que o `int` depois recusa.
+        if not (value.isascii() and value.isdigit()):
+            raise InvalidSpec(
+                f"a configuração {name!r} tem {key}={value!r}; precisa ser um inteiro >= 0"
+            )
+        limits[key] = value
+    return limits
+
+
+def environment_baseline() -> dict[str, str | None]:
+    """O valor de cada limite opcional no ambiente antes da matriz mexer nele."""
+    return {key: os.environ.get(key) for key in OPTIONAL}
+
+
+def apply_configuration(configuration: Configuration, baseline: Mapping[str, str | None]) -> None:
     """Coloca a configuração no ambiente e descarta os caches.
 
     Mexer em `os.environ` é coisa de ponto de entrada, e este script é um. Sem
     limpar os dois caches, `get_settings` e `get_model` devolveriam a
     configuração anterior e a matriz inteira mediria a mesma coisa várias vezes.
+
+    O limite que a linha não fixa volta ao `baseline`. Sem isso, o zero da linha
+    sem crítico vazaria para todas as seguintes.
     """
     for key, value in configuration.models.items():
         os.environ[key] = value
+    for key in OPTIONAL:
+        limit = configuration.limits.get(key, baseline.get(key))
+        if limit is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = limit
     get_settings.cache_clear()
     reset_model_cache()
+
+
+def effective_limits() -> dict[str, int]:
+    """Os limites opcionais que a configuração corrente de fato usa."""
+    settings = get_settings()
+    return {key: int(getattr(settings, key)) for key in OPTIONAL}
 
 
 async def run_configuration(
     configuration: Configuration,
     tasks: list[dict[str, Any]],
     *,
+    baseline: Mapping[str, str | None],
     skipped: int,
     repeats: int,
 ) -> ConfigurationResult:
-    apply_configuration(configuration)
-    emit("node_start", node="matrix", configuration=configuration.name, **configuration.models)
+    apply_configuration(configuration, baseline)
+    limits = effective_limits()
+    emit(
+        "node_start",
+        node="matrix",
+        configuration=configuration.name,
+        **configuration.models,
+        **limits,
+    )
     results = [
         await run_task(task, index=index, repeat=repeat)
         for repeat in range(repeats)
@@ -155,6 +231,7 @@ async def run_configuration(
         models=configuration.models,
         notes=configuration.notes,
         metrics=metrics,
+        limits=limits,
     )
 
 
@@ -225,13 +302,14 @@ def write_matrix(results: list[ConfigurationResult], *, repeats: int, limit: int
         "repeticoes": repeats,
         "limit": limit,
         # O bloco comum sai da configuração corrente; o que varia por linha está
-        # em `modelos`, dentro de cada configuração.
+        # em `modelos` e `limites`, dentro de cada configuração.
         "config": config_block(get_settings()),
         "configuracoes": [
             {
                 "nome": result.name,
                 "nota": result.notes,
                 "modelos": result.models,
+                "limites": result.limits,
                 "metricas": result.metrics,
                 "delta_vs_base": delta_against(baseline, result) if baseline else {},
             }
@@ -261,9 +339,12 @@ async def main_async(args: argparse.Namespace) -> int:
         sys.stderr.write(f"{exc}\n")
         return 2
 
+    # Capturado antes da primeira aplicação, que já mexe no ambiente.
+    baseline = environment_baseline()
+
     # Uma configuração precisa estar aplicada antes do primeiro `get_settings`,
     # senão o validador reclama dos modelos de papel que a matriz é quem fornece.
-    apply_configuration(configurations[0])
+    apply_configuration(configurations[0], baseline)
     try:
         get_settings()
     except ValidationError as exc:
@@ -276,7 +357,9 @@ async def main_async(args: argparse.Namespace) -> int:
         return 1
 
     results = [
-        await run_configuration(configuration, tasks, skipped=skipped, repeats=args.repeats)
+        await run_configuration(
+            configuration, tasks, baseline=baseline, skipped=skipped, repeats=args.repeats
+        )
         for configuration in configurations
     ]
     sys.stdout.write(render_matrix(results) + "\n")

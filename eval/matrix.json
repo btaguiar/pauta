@@ -1,5 +1,5 @@
 {
-  "sobre": "Configurações comparadas por eval/matrix.py. Preencha os ids com o nome completo do gateway, com a casa de origem no nome. Vazio de propósito: nenhum modelo tem default no código (ADR 007). A primeira configuração é a linha de base, e os deltas saem contra ela.",
+  "sobre": "Configurações comparadas por eval/matrix.py. Preencha os ids com o nome completo do gateway, com a casa de origem no nome. Vazio de propósito: nenhum modelo tem default no código (ADR 007). A primeira configuração é a linha de base, e os deltas saem contra ela. MAX_CRITIC_LOOPS é opcional por linha; ausente, vale o do .env.",
   "configuracoes": [
     {
       "nome": "tudo-barato",
@@ -7,6 +7,14 @@
       "MODEL_ROUTER": "",
       "MODEL_CRITIC": "",
       "MODEL_WORKER": ""
+    },
+    {
+      "nome": "sem-critico",
+      "nota": "os mesmos modelos da tudo-barato, com o crítico desligado. A diferença entre esta linha e a base é o que o crítico barato compra. Junto com critico-melhor, fecha as três condições: sem crítico, crítico barato, crítico melhor.",
+      "MODEL_ROUTER": "",
+      "MODEL_CRITIC": "",
+      "MODEL_WORKER": "",
+      "MAX_CRITIC_LOOPS": "0"
     },
     {
       "nome": "router-melhor",

@@ -104,6 +104,41 @@ def test_the_versioned_spec_varies_one_role_at_a_time() -> None:
     assert all(entry.get("nota") for entry in raw["configuracoes"])
 
 
+def test_the_versioned_spec_carries_the_three_critic_conditions() -> None:
+    """Sem crítico, crítico barato e crítico melhor. Sem a primeira, não há como
+    saber se o loop de crítica compra alguma coisa."""
+    raw = json.loads((REPO_ROOT / "eval" / "matrix.json").read_text(encoding="utf-8"))
+    by_name = {entry["nome"]: entry for entry in raw["configuracoes"]}
+    assert by_name["sem-critico"]["MAX_CRITIC_LOOPS"] == "0"
+    assert "MAX_CRITIC_LOOPS" not in by_name["tudo-barato"]
+    assert "MAX_CRITIC_LOOPS" not in by_name["critico-melhor"]
+
+
+def test_a_configuration_can_turn_the_critic_off(tmp_path: Path) -> None:
+    as_text = matrix.load_spec(write_spec(tmp_path, a_spec(MAX_CRITIC_LOOPS="0")))
+    as_number = matrix.load_spec(write_spec(tmp_path, a_spec(MAX_CRITIC_LOOPS=0)))
+    assert as_text[0].limits == {"MAX_CRITIC_LOOPS": "0"}
+    assert as_number[0].limits == {"MAX_CRITIC_LOOPS": "0"}
+
+
+def test_a_line_that_does_not_mention_the_critic_fixes_nothing(tmp_path: Path) -> None:
+    assert matrix.load_spec(write_spec(tmp_path, a_spec()))[0].limits == {}
+    blank = matrix.load_spec(write_spec(tmp_path, a_spec(MAX_CRITIC_LOOPS=" ")))
+    assert blank[0].limits == {}
+
+
+@pytest.mark.parametrize("value", ["-1", "dois", "1.5", "²", True])
+def test_a_critic_limit_that_is_not_a_count_is_refused(tmp_path: Path, value: Any) -> None:
+    with pytest.raises(InvalidSpec, match="inteiro >= 0"):
+        matrix.load_spec(write_spec(tmp_path, a_spec(MAX_CRITIC_LOOPS=value)))
+
+
+def test_a_misspelled_key_is_refused_instead_of_ignored(tmp_path: Path) -> None:
+    """Ignorada, a linha "sem crítico" rodaria com crítico e mediria a coisa errada."""
+    with pytest.raises(InvalidSpec, match="MAX_CRITIC_LOOP"):
+        matrix.load_spec(write_spec(tmp_path, a_spec(MAX_CRITIC_LOOP="0")))
+
+
 def test_applying_a_configuration_changes_what_the_settings_report(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -118,10 +153,50 @@ def test_applying_a_configuration_changes_what_the_settings_report(
                 "MODEL_CRITIC": "outra-casa/critic-forte",
                 "MODEL_WORKER": "casa/worker",
             },
-        )
+        ),
+        matrix.environment_baseline(),
     )
     assert get_settings().MODEL_CRITIC == "outra-casa/critic-forte"
     assert before != get_settings().MODEL_CRITIC
+
+
+def test_a_turned_off_critic_does_not_leak_into_the_next_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """O zero da linha sem crítico não pode valer para as linhas seguintes."""
+    monkeypatch.setattr(os, "environ", dict(os.environ))
+    before = get_settings().MAX_CRITIC_LOOPS
+    assert before > 0, "o teste só prova algo se o limite de partida não for zero"
+    baseline = matrix.environment_baseline()
+    models = {"MODEL_ROUTER": "r", "MODEL_CRITIC": "c", "MODEL_WORKER": "w"}
+
+    matrix.apply_configuration(
+        Configuration(name="sem-critico", models=models, limits={"MAX_CRITIC_LOOPS": "0"}),
+        baseline,
+    )
+    assert get_settings().MAX_CRITIC_LOOPS == 0
+    assert matrix.effective_limits() == {"MAX_CRITIC_LOOPS": 0}
+
+    matrix.apply_configuration(Configuration(name="critico-melhor", models=models), baseline)
+    assert before == get_settings().MAX_CRITIC_LOOPS
+
+
+def test_a_limit_already_in_the_environment_is_what_the_next_line_gets_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Se o ambiente já fixava o limite, a linha sem opinião volta para ele, não
+    para o default do código."""
+    monkeypatch.setattr(os, "environ", dict(os.environ))
+    os.environ["MAX_CRITIC_LOOPS"] = "3"
+    baseline = matrix.environment_baseline()
+    models = {"MODEL_ROUTER": "r", "MODEL_CRITIC": "c", "MODEL_WORKER": "w"}
+
+    matrix.apply_configuration(
+        Configuration(name="sem-critico", models=models, limits={"MAX_CRITIC_LOOPS": "0"}),
+        baseline,
+    )
+    matrix.apply_configuration(Configuration(name="tudo-barato", models=models), baseline)
+    assert get_settings().MAX_CRITIC_LOOPS == 3
 
 
 def test_the_embedding_is_not_tunable() -> None:
@@ -182,6 +257,26 @@ def test_the_artifact_records_every_configuration_with_its_models(
     ]
     assert payload["configuracoes"][1]["delta_vs_base"]["cobertura"] == pytest.approx(0.3)
     assert payload["configuracoes"][0]["modelos"]["MODEL_CRITIC"] == "c"
+
+
+def test_the_artifact_says_which_critic_limit_each_line_ran_with(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """O bloco `config` comum sai da última linha. Sem o limite por linha, o
+    artefato não diria qual delas rodou sem crítico."""
+    monkeypatch.setattr(matrix, "RESULTS_DIR", tmp_path)
+    base = a_result("tudo-barato")
+    base.limits = {"MAX_CRITIC_LOOPS": 2}
+    off = a_result("sem-critico")
+    off.limits = {"MAX_CRITIC_LOOPS": 0}
+
+    payload = json.loads(
+        matrix.write_matrix([base, off], repeats=1, limit=None).read_text(encoding="utf-8")
+    )
+    assert [item["limites"] for item in payload["configuracoes"]] == [
+        {"MAX_CRITIC_LOOPS": 2},
+        {"MAX_CRITIC_LOOPS": 0},
+    ]
 
 
 def test_the_matrix_artifact_carries_no_secret(

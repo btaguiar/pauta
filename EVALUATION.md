@@ -124,13 +124,23 @@ resultados lado a lado, com o delta contra a linha de base. As configurações
 ficam em `eval/matrix.json`, uma por linha, variando um papel de cada vez a
 partir de um piso barato.
 
-Duas hipóteses que a matriz existe para testar:
+Uma linha também pode fixar `MAX_CRITIC_LOOPS`, e zero desliga o crítico. Linha
+que não fixa roda com o valor do `.env`. O artefato grava o valor efetivo de
+cada linha em `limites`, porque o bloco `config` comum sai da última
+configuração que rodou.
+
+Três hipóteses que a matriz existe para testar:
 
 - Router barato não custa qualidade, porque o código já corrige a decisão do
   supervisor em `enforce_rules`. Se o delta de `router-melhor` for zero, essa
   correção se pagou.
 - Crítico barato custa caro, porque crítico fraco tende a carimbar `verdict:
   ok`. É o modo de falha que a ADR 002 existe para pegar.
+- O crítico se paga. `sem-critico` usa os modelos da linha de base, com o
+  crítico desligado. Com `tudo-barato` e `critico-melhor`, dá as três condições:
+  sem crítico, crítico barato, crítico melhor. Se a diferença entre elas ficar
+  abaixo do desvio, a conclusão é que a diferença não foi medida, e ela vai
+  para este documento do mesmo jeito.
 
 O embedding não entra na matriz. Trocá-lo no meio compararia corpus diferentes,
 não modelos diferentes.
