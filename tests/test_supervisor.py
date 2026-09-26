@@ -33,6 +33,14 @@ def state_with(**overrides: object) -> AgentState:
     return state
 
 
+def test_router_accepts_a_decision_wrapped_in_a_single_item_list() -> None:
+    """glm-5.3 no gateway de chat devolve `[{"next": ...}]`; sem o unwrap, o
+    parse falha sempre e o supervisor vira rota determinística (medido no eval)."""
+    router = Router.model_validate([{"next": "research", "rationale": "falta fonte"}])
+    assert router.next == "research"
+    assert router.rationale == "falta fonte"
+
+
 async def test_routes_to_what_the_model_decided(settings: Settings) -> None:
     model = FakeChatModel(responses=[Router(next="research", rationale="falta fonte")])
     node = make_supervisor_node(model, settings)

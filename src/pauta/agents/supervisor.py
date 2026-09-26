@@ -8,7 +8,7 @@ from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ..config import Settings, get_settings
 from ..graph.routing import ALL_AGENTS, enforce_rules, fallback_route, forced_route
@@ -38,6 +38,20 @@ class Router(BaseModel):
 
     next: NextStep
     rationale: str = Field(description="uma frase explicando a escolha")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _unwrap_single_item_list(cls, data: object) -> object:
+        """Tem gateway que devolve a decisão embrulhada numa lista de um item.
+
+        Medido com glm-5.3 no gateway de chat: o JSON veio `[{"next": ...}]` e o
+        parse estruturado falhou nas duas tentativas de todas as chamadas,
+        condenando o supervisor à rota determinística. A lista de um item só
+        pode ser a decisão, então desembrulhar não cria ambiguidade.
+        """
+        if isinstance(data, list) and len(data) == 1:
+            return data[0]
+        return data
 
 
 def render_state(state: AgentState, settings: Settings) -> str:
