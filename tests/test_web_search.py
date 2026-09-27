@@ -233,6 +233,64 @@ def test_search_exceptions_propagate_out_of_the_tool(
         ws.get_web_search_tool().invoke({"query": "x"})
 
 
+def test_tavily_provider_error_dict_raises_web_search_error(
+    fake_tavily: FakeTavilySearch,
+    monkeypatch: pytest.MonkeyPatch,
+    use_search_provider: Callable[[str], None],
+) -> None:
+    """Outage chega como `{"error": ...}`, não como exceção, e tem que sobreviver.
+
+    Sem a tradução o acesso a `payload["results"]` estoura `KeyError` e a causa
+    real, a mensagem do provider, desaparece antes do agente.
+    """
+    monkeypatch.setattr(
+        fake_tavily, "invoke", lambda payload: {"error": ConnectionError("tavily fora do ar")}
+    )
+    monkeypatch.setenv("TAVILY_API_KEY", "chave-fake")
+    use_search_provider("tavily")
+    tool = ws.get_web_search_tool()
+    with pytest.raises(ws.WebSearchError, match="tavily fora do ar"):
+        tool.invoke({"query": "x"})
+
+
+def test_tavily_empty_result_string_raises_web_search_error(
+    fake_tavily: FakeTavilySearch,
+    monkeypatch: pytest.MonkeyPatch,
+    use_search_provider: Callable[[str], None],
+) -> None:
+    """Resultado vazio vira string no `BaseTool`, que é falha do provider.
+
+    Não pode virar `nenhum resultado`: o provider trata vazio como erro, e
+    responder como sucesso esconderia a anomalia. Também não pode virar
+    `TypeError` de `string indices`.
+    """
+    empty = "No search results found for 'q'. Suggestions: ..."
+    monkeypatch.setattr(fake_tavily, "invoke", lambda payload: empty)
+    monkeypatch.setenv("TAVILY_API_KEY", "chave-fake")
+    use_search_provider("tavily")
+    tool = ws.get_web_search_tool()
+    with pytest.raises(ws.WebSearchError, match="No search results found"):
+        tool.invoke({"query": "q"})
+
+
+def test_tavily_unexpected_shape_raises_web_search_error(
+    fake_tavily: FakeTavilySearch,
+    monkeypatch: pytest.MonkeyPatch,
+    use_search_provider: Callable[[str], None],
+) -> None:
+    """Formato que não é dict nem string vira erro do domínio, dizendo o que chegou.
+
+    Sem isso o caso estoura `TypeError` ou `KeyError` e o agente lê o nome da
+    exceção no lugar do conteúdo que o provider mandou.
+    """
+    monkeypatch.setattr(fake_tavily, "invoke", lambda payload: 42)
+    monkeypatch.setenv("TAVILY_API_KEY", "chave-fake")
+    use_search_provider("tavily")
+    tool = ws.get_web_search_tool()
+    with pytest.raises(ws.WebSearchError, match="42"):
+        tool.invoke({"query": "x"})
+
+
 def test_fractional_timeout_does_not_become_zero(
     fake_ddgs: FakeDDGS,
     monkeypatch: pytest.MonkeyPatch,

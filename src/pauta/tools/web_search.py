@@ -11,7 +11,7 @@ da tool e devolver lista vazia esconderia a falha.
 """
 
 from functools import lru_cache
-from typing import Any, cast
+from typing import Any
 
 from ddgs import DDGS
 from langchain_core.tools import BaseTool, tool
@@ -30,6 +30,10 @@ WEB_SEARCH_TOOL_NAME = "web_search"
 
 class MissingTavilyKey(RuntimeError):
     """`TAVILY_API_KEY` não está no ambiente."""
+
+
+class WebSearchError(RuntimeError):
+    """A busca falhou e o provider devolveu o motivo no corpo da resposta."""
 
 
 def _format_results(results: list[dict[str, Any]]) -> str:
@@ -76,6 +80,29 @@ def _ddgs_tool() -> BaseTool:
     return web_search
 
 
+def _tavily_results(payload: object) -> list[dict[str, Any]]:
+    """Extrai os resultados reconhecendo as duas falhas que o provider devolve como dado.
+
+    `TavilySearch` não levanta exceção na maioria das falhas: manda
+    `{"error": ...}` em outage e uma string quando não há resultado. Os dois
+    formatos viram `WebSearchError` com a mensagem do próprio provider. O resto
+    também vira `WebSearchError`, dizendo o que chegou, em vez de estourar
+    `KeyError` ou `TypeError` e apagar a causa.
+    """
+    if isinstance(payload, str):
+        raise WebSearchError(payload)
+    if not isinstance(payload, dict):
+        raise WebSearchError(
+            f"resposta da Tavily fora do formato: {type(payload).__name__}: {payload!r}"
+        )
+    if "error" in payload:
+        raise WebSearchError(str(payload["error"]))
+    results = payload.get("results")
+    if not isinstance(results, list):
+        raise WebSearchError(f"resposta da Tavily sem results nem error: {payload!r}")
+    return results
+
+
 def _tavily_tool() -> BaseTool:
     """Busca sobre a Tavily, já com o nome e o formato unificados.
 
@@ -99,10 +126,9 @@ def _tavily_tool() -> BaseTool:
         Args:
             query: o que procurar.
         """
-        payload = cast(dict[str, Any], inner.invoke({"query": query}))
         results = [
             {"title": item.get("title"), "href": item.get("url"), "body": item.get("content")}
-            for item in payload["results"]
+            for item in _tavily_results(inner.invoke({"query": query}))
         ]
         return _format_results(results)
 
