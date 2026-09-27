@@ -10,6 +10,10 @@ dependencies = [
     "langchain-core>=1.6.1,<1.7",
     "langchain-openai>=1.6.0,<1.7",
     "langchain-tavily>=0.2.18,<0.3",
+    # Busca web sem chave e sem custo (ADR 008). Pin de minor fechado porque o
+    # pacote tem um maintainer e ja foi renomeado uma vez, de duckduckgo-search
+    # para ddgs.
+    "ddgs>=9.16,<9.17",
     "langchain-postgres>=0.0.17,<0.1",
     "langchain-text-splitters>=1.1.2,<1.2",
     "psycopg[binary,pool]>=3.3.5,<3.4",
