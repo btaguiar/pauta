@@ -109,7 +109,7 @@ def test_search_backend_is_closed(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_search_backend_accepts_every_documented_engine(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Os dez motores da documentação do ddgs 9.16.0, um por um.
+    """Os dez motores documentados do ddgs 9.16.0 mais o sentinela `auto`.
 
     A revisão do spec listou nove, sem grokipedia. Este teste é o que impede a
     lista de encolher de novo.
@@ -130,3 +130,10 @@ def test_search_backend_accepts_every_documented_engine(monkeypatch: pytest.Monk
         monkeypatch.setenv("SEARCH_BACKEND", engine)
         get_settings.cache_clear()
         assert engine == Settings(_env_file=None).SEARCH_BACKEND  # type: ignore[call-arg]
+
+
+def test_web_search_timeout_rejects_non_positive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WEB_SEARCH_TIMEOUT_S", "0")
+    get_settings.cache_clear()
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # type: ignore[call-arg]

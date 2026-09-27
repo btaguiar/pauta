@@ -30,8 +30,10 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         monkeypatch.setenv(key, value)
     monkeypatch.setitem(Settings.model_config, "env_file", None)
     get_settings.cache_clear()
+    reset_web_search_cache()
     yield
     get_settings.cache_clear()
+    reset_web_search_cache()
 
 
 @pytest.fixture
