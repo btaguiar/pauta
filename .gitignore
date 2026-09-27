@@ -5,6 +5,10 @@
 # Documentos de planejamento pessoal, ficam fora do repo publico
 DOSSIE.md
 PLANO.md
+docs/superpowers/
+
+# Worktrees de desenvolvimento
+.worktrees/
 
 # Python
 __pycache__/
