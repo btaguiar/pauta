@@ -1,8 +1,8 @@
 """Quais tools existem, dado o que o ambiente oferece.
 
 O agente recebe as tools prontas. Quem monta o conjunto é o ponto de entrada, e
-monta igual em todos eles: sem chave da Tavily não há busca web, sem corpus
-indexável não há retriever, calculadora sempre.
+monta igual em todos eles: ddgs não pede chave para a busca web, a Tavily exige
+`TAVILY_API_KEY`, sem corpus indexável não há retriever, calculadora sempre.
 """
 
 from collections.abc import Sequence
@@ -10,7 +10,7 @@ from pathlib import Path
 
 from langchain_core.tools import BaseTool
 
-from ..config import Settings, get_settings
+from ..config import Settings
 from .calculator import get_calculator_tool
 from .retriever import get_retriever_tool, load_documents, samples_dir
 from .web_search import get_web_search_tool
@@ -23,11 +23,13 @@ def corpus_is_empty(directory: Path | None = None) -> bool:
 
 
 def research_tools(settings: Settings | None = None) -> Sequence[BaseTool]:
-    """Busca web quando há chave, corpus local quando há documento."""
-    resolved = settings or get_settings()
-    tools: list[BaseTool] = []
-    if resolved.TAVILY_API_KEY:
-        tools.append(get_web_search_tool())
+    """Busca web pelo provedor configurado, corpus local quando há documento.
+
+    `SEARCH_PROVIDER=ddgs` monta a tool sem chave nenhuma.
+    `SEARCH_PROVIDER=tavily` exige `TAVILY_API_KEY`, e o startup falha dizendo
+    qual variável falta em vez de deixar o research mudo.
+    """
+    tools: list[BaseTool] = [get_web_search_tool()]
     if not corpus_is_empty():
         tools.append(get_retriever_tool())
     return tools
