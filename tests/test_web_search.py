@@ -37,6 +37,46 @@ def fake_ddgs(monkeypatch: pytest.MonkeyPatch) -> FakeDDGS:
     return instance
 
 
+class FakeTavilySearch:
+    """Substitui o `TavilySearch` real. Devolve o shape documentado do provider."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.kwargs = kwargs
+        self.calls: list[dict[str, Any]] = []
+
+    def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.calls.append(payload)
+        return {
+            "results": [
+                {
+                    "title": "Um título",
+                    "url": "https://exemplo.dev/a",
+                    "content": "um trecho",
+                    "raw_content": None,
+                },
+                {
+                    "title": "Outro",
+                    "url": "https://exemplo.dev/b",
+                    "content": "outro trecho",
+                    "raw_content": None,
+                },
+            ],
+            "query": payload["query"],
+        }
+
+
+@pytest.fixture
+def fake_tavily(monkeypatch: pytest.MonkeyPatch) -> FakeTavilySearch:
+    instance = FakeTavilySearch()
+
+    def factory(**kwargs: Any) -> FakeTavilySearch:
+        instance.kwargs = kwargs
+        return instance
+
+    monkeypatch.setattr(ws, "TavilySearch", factory)
+    return instance
+
+
 def test_ddgs_tool_has_the_stable_name(
     fake_ddgs: FakeDDGS, use_search_provider: Callable[[str], None]
 ) -> None:
@@ -114,3 +154,106 @@ def test_reset_makes_the_factory_build_again(use_search_provider: Callable[[str]
     ws.reset_web_search_cache()
     third = ws.get_web_search_tool()
     assert third is not first
+
+
+def test_tavily_tool_exposes_only_query(
+    monkeypatch: pytest.MonkeyPatch, use_search_provider: Callable[[str], None]
+) -> None:
+    """Os filtros do provider não vazam para o modelo: a tool é só `query`."""
+    monkeypatch.setenv("TAVILY_API_KEY", "chave-fake")
+    use_search_provider("tavily")
+    tool = ws.get_web_search_tool()
+    assert list(tool.args) == ["query"]
+
+
+def test_tavily_tool_maps_url_content_into_href_body(
+    fake_tavily: FakeTavilySearch,
+    monkeypatch: pytest.MonkeyPatch,
+    use_search_provider: Callable[[str], None],
+) -> None:
+    """O `url` do provider vira `href` e o `content` vira `body`, no bloco de sempre."""
+    monkeypatch.setenv("TAVILY_API_KEY", "chave-fake")
+    use_search_provider("tavily")
+    tool = ws.get_web_search_tool()
+    out = tool.invoke({"query": "x"})
+    assert fake_tavily.calls == [{"query": "x"}]
+    assert out == (
+        "title: Um título\n"
+        "href: https://exemplo.dev/a\n"
+        "body: um trecho\n"
+        "\n"
+        "title: Outro\n"
+        "href: https://exemplo.dev/b\n"
+        "body: outro trecho"
+    )
+
+
+def test_both_providers_render_the_same_blocks(
+    fake_ddgs: FakeDDGS,
+    fake_tavily: FakeTavilySearch,
+    monkeypatch: pytest.MonkeyPatch,
+    use_search_provider: Callable[[str], None],
+) -> None:
+    """Saída idêntica para entrada equivalente: o agente cita fonte igual nos dois."""
+    use_search_provider("ddgs")
+    ddgs_out = ws.get_web_search_tool().invoke({"query": "x"})
+
+    monkeypatch.setenv("TAVILY_API_KEY", "chave-fake")
+    use_search_provider("tavily")
+    tavily_out = ws.get_web_search_tool().invoke({"query": "x"})
+
+    assert ddgs_out == tavily_out
+    assert "href: https://exemplo.dev/a" in tavily_out
+
+
+def test_search_exceptions_propagate_out_of_the_tool(
+    fake_ddgs: FakeDDGS,
+    fake_tavily: FakeTavilySearch,
+    monkeypatch: pytest.MonkeyPatch,
+    use_search_provider: Callable[[str], None],
+) -> None:
+    """A exceção sobe para o `run_tools`, que vira `ToolMessage` de erro.
+
+    Tratar aqui e devolver `nenhum resultado` esconderia a falha.
+    """
+
+    def explode(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("busca fora do ar")
+
+    monkeypatch.setattr(fake_ddgs, "text", explode)
+    monkeypatch.setattr(fake_tavily, "invoke", explode)
+
+    use_search_provider("ddgs")
+    with pytest.raises(RuntimeError, match="fora do ar"):
+        ws.get_web_search_tool().invoke({"query": "x"})
+
+    monkeypatch.setenv("TAVILY_API_KEY", "chave-fake")
+    use_search_provider("tavily")
+    with pytest.raises(RuntimeError, match="fora do ar"):
+        ws.get_web_search_tool().invoke({"query": "x"})
+
+
+def test_fractional_timeout_does_not_become_zero(
+    fake_ddgs: FakeDDGS,
+    monkeypatch: pytest.MonkeyPatch,
+    use_search_provider: Callable[[str], None],
+) -> None:
+    """0.5s não pode virar timeout=0, que expira na hora."""
+    monkeypatch.setenv("WEB_SEARCH_TIMEOUT_S", "0.5")
+    use_search_provider("ddgs")
+    ws.get_web_search_tool().invoke({"query": "x"})
+    assert fake_ddgs.kwargs == {"timeout": 1}
+
+
+def test_none_fields_render_as_empty(
+    fake_ddgs: FakeDDGS,
+    monkeypatch: pytest.MonkeyPatch,
+    use_search_provider: Callable[[str], None],
+) -> None:
+    """Campo presente e nulo vira vazio: o agente não pode ler `None`."""
+    monkeypatch.setattr(
+        fake_ddgs, "text", lambda q, **k: [{"title": None, "href": None, "body": None}]
+    )
+    use_search_provider("ddgs")
+    tool = ws.get_web_search_tool()
+    assert tool.invoke({"query": "x"}) == "title: \nhref: \nbody: "

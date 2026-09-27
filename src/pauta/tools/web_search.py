@@ -1,9 +1,9 @@
 """Busca web. Um provedor por vez, escolhido por configuração.
 
 Wrapper fino: trocar de provedor é este arquivo. Os dois provedores saem com o
-mesmo nome de tool, `web_search`, para `tools_called` ser comparável entre
-rodadas. Artefato antigo traz `tavily_search`; a quebra de nome fica registrada
-no `EVALUATION.md`.
+mesmo nome de tool, `web_search`, o mesmo argumento `query` e o mesmo formato
+de saída, para `tools_called` ser comparável entre rodadas. Artefato antigo traz
+`tavily_search`; a quebra de nome fica registrada no `EVALUATION.md`.
 
 A falha da busca não é tratada aqui. `run_tools` em `agents/_common.py` captura
 a exceção, emite o evento `error` e devolve `ToolMessage` de erro. Tratar dentro
@@ -33,18 +33,19 @@ class MissingTavilyKey(RuntimeError):
 
 
 def _format_results(results: list[dict[str, Any]]) -> str:
-    """Formata os resultados do `ddgs` para o agente conseguir citar a fonte.
+    """Formata os resultados para o agente conseguir citar a fonte.
 
-    As chaves do `ddgs` são `title`, `href` e `body`. Um resultado por bloco,
-    porque a regra 1 do prompt do research cobra url ou caminho em toda
-    afirmação.
+    As chaves são `title`, `href` e `body`, o formato comum que os dois
+    provedores entregam. Um resultado por bloco, porque a regra 1 do prompt do
+    research cobra url ou caminho em toda afirmação. Campo nulo ou ausente vira
+    vazio, para o agente não ler `None` como conteúdo.
     """
     if not results:
         return "nenhum resultado"
     blocks = [
-        f"title: {item.get('title', '')}\n"
-        f"href: {item.get('href', '')}\n"
-        f"body: {item.get('body', '')}"
+        f"title: {item.get('title') or ''}\n"
+        f"href: {item.get('href') or ''}\n"
+        f"body: {item.get('body') or ''}"
         for item in results
     ]
     return "\n\n".join(blocks)
@@ -62,8 +63,9 @@ def _ddgs_tool() -> BaseTool:
         """
         settings = get_settings()
         # ddgs aceita timeout em segundos inteiros; o campo é float de propósito,
-        # coerente com os NODE_TIMEOUT_*.
-        results = DDGS(timeout=int(settings.WEB_SEARCH_TIMEOUT_S)).text(
+        # coerente com os NODE_TIMEOUT_*. O truncamento rende 0 abaixo de 1s, e 0
+        # expira na hora: por isso o inteiro passado tem piso em 1.
+        results = DDGS(timeout=max(1, int(settings.WEB_SEARCH_TIMEOUT_S))).text(
             query,
             region=settings.SEARCH_REGION,
             max_results=WEB_SEARCH_MAX_RESULTS,
@@ -75,22 +77,36 @@ def _ddgs_tool() -> BaseTool:
 
 
 def _tavily_tool() -> BaseTool:
-    """Busca sobre a Tavily, já com o nome unificado.
+    """Busca sobre a Tavily, já com o nome e o formato unificados.
 
-    `TavilySearch` aceita `name=`, então não há embrulho: é o mesmo objeto de
-    antes, com o nome que os dois provedores compartilham.
+    O `TavilySearch` cru expõe os filtros do provider e devolve `title`, `url`
+    e `content`. O embrulho aceita só `query` e renomeia as chaves para o
+    formato dos dois provedores.
     """
     settings = get_settings()
     if not settings.TAVILY_API_KEY:
         raise MissingTavilyKey("TAVILY_API_KEY não definida; SEARCH_PROVIDER=tavily exige a chave")
-    return cast(
-        BaseTool,
-        TavilySearch(
-            name=WEB_SEARCH_TOOL_NAME,
-            max_results=WEB_SEARCH_MAX_RESULTS,
-            tavily_api_key=settings.TAVILY_API_KEY,
-        ),
+    inner = TavilySearch(
+        name=WEB_SEARCH_TOOL_NAME,
+        max_results=WEB_SEARCH_MAX_RESULTS,
+        tavily_api_key=settings.TAVILY_API_KEY,
     )
+
+    @tool(WEB_SEARCH_TOOL_NAME)
+    def web_search(query: str) -> str:
+        """Busca na web e devolve títulos, links e trechos.
+
+        Args:
+            query: o que procurar.
+        """
+        payload = cast(dict[str, Any], inner.invoke({"query": query}))
+        results = [
+            {"title": item.get("title"), "href": item.get("url"), "body": item.get("content")}
+            for item in payload["results"]
+        ]
+        return _format_results(results)
+
+    return web_search
 
 
 @lru_cache
