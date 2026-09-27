@@ -68,8 +68,15 @@ que exige conta, o supervisor nunca passou pelo analyst, então a aritmética fo
 feita de cabeça, contra a regra do prompt. Esse último foi o eval que pegou, no
 primeiro uso.
 
-Nenhuma combinação de modelos foi comparada ainda: `eval/matrix.py` existe e
-nunca rodou. O método, as definições e as limitações estão em
+Em 2026-09-26 o sistema mediu contra o gateway de chat atual, e nove runs com
+`glm-5.3` nos três papéis morreram em timeout antes de escrever qualquer
+briefing. Os tetos de timeout foram recalibrados sobre essas medições.
+
+A matriz de modelos rodou duas vezes no mesmo dia. A segunda rodada comparou as
+cinco configurações de `eval/matrix.json` com 1 repetição cada e falha de 20% a
+80% das tarefas. Os denominadores das médias ficaram entre 0 e 4, então a
+diferença entre configurações não é mensurável e nenhuma combinação foi
+escolhida. Os números, com o `n` de cada um, e as limitações do método estão em
 [EVALUATION.md](EVALUATION.md).
 
 ## O grafo
@@ -105,13 +112,16 @@ o código corrige a decisão dele antes de aplicá-la. As sete ADRs estão em
 | Crítico que não responde reprova | Sem veredito, o material segue como não validado e a ressalva vai no briefing. Aprovar por omissão é o modo de falha que a ADR 002 existe para pegar. [critic.py:83](src/pauta/agents/critic.py#L83) |
 | Um nível de supervisão, não hierarquia | Subgrafo e supervisor de supervisor só entram com justificativa medida no eval. ADR 001 |
 | Nenhum modelo no código | Todo LLM sai de `get_model(role)`, inclusive o juiz do eval. Trocar de provider é editar o `.env`. ADR 007 |
-| Qual combinação de modelos | **Pendente.** O instrumento existe em `eval/matrix.py`; a medição não foi feita. |
+| Qual combinação de modelos | **Pendente.** A matriz rodou em 2026-09-26, com 1 repetição por linha e falha de 20% a 80% das tarefas. A escolha espera as 3 repetições completas. |
 
 ## Limitações conhecidas
 
-- Nenhum número de qualidade foi medido. Ver a seção acima.
-- O juiz de fidelidade está calibrado apenas contra 8 casos construídos para
-  serem inequívocos. Um conjunto sem caso difícil superestima a concordância.
+- Os números de qualidade por configuração de modelo têm `n` de 0 a 4 e
+  20% a 80% das tarefas falhando por timeout. Não sustentam comparação. Ver
+  [EVALUATION.md](EVALUATION.md).
+- O juiz de fidelidade está calibrado contra 8 casos construídos para serem
+  inequívocos (kappa 0,75). Um conjunto sem caso difícil superestima a
+  concordância.
 - `incerteza_sinalizada` é casamento de marcador de texto, não compreensão.
 - O corpus tem 6 documentos e 22 chunks. Pequeno demais para generalizar.
 - O stream não guarda histórico. Quem abre `GET /runs/{id}/stream` no meio da

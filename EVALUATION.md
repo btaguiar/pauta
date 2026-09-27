@@ -2,9 +2,9 @@
 
 Como o pauta é medido, o que cada número significa, e o que ainda não foi medido.
 
-Este documento descreve o método. Ele traz o que seis execuções reais mediram,
-e não traz nota de qualidade: a combinação de modelos ainda não foi escolhida e
-o golden set nunca rodou inteiro. Todo número aqui vem com data, commit e `n`.
+Este documento descreve o método e o que as execuções reais mediram até agora.
+A combinação de modelos não foi escolhida e o golden set nunca rodou inteiro.
+Todo número aqui vem com data, commit e `n`.
 
 ## O golden set
 
@@ -97,6 +97,11 @@ O piso é 0,60, o "substancial" de Landis e Koch. Abaixo dele o juiz discorda
 demais do humano para o número dele significar alguma coisa, e o relatório diz
 isso em vez de publicar o número.
 
+Calibração rodada em 2026-09-26 com `JUDGE_MODEL=qwen3.8-max` sobre os 8 casos:
+kappa 0,75, concordância crua 0,875, zero sem resposta. Acima do piso, então o
+juiz pode entrar no relatório. Artefato em
+`eval/results/judge_calibration_20260926T030514Z.json`.
+
 ## Artefatos por rodada
 
 Cada execução grava três arquivos em `eval/results/`, nomeados com timestamp UTC
@@ -172,6 +177,9 @@ runs, todas com `MODEL_WORKER=openai/gpt-5.6-luna`,
 é 1 por tarefa, então nada aqui é conclusão sobre qualidade. São defeitos, e
 defeito aparece com n=1.
 
+O artefato salvo em `eval/results/` cobre uma das seis runs, a `t10`. Os outros
+números vêm da mesma sessão, sem artefato em `eval/results/`.
+
 Latência medida por nó, em segundos: supervisor 1,4 a 2,0; research 10 a 17
 sobre o corpus e 61 com busca web; critic 1,5 a 18; writer 6 a 10. O analyst
 nunca foi roteado, então não tem medida.
@@ -201,14 +209,68 @@ research, critic, writer, e a aritmética saiu de cabeça, contra a regra 1 do
 prompt do analista. Foi a métrica `calculadora_usada` que pegou isso, no
 primeiro uso do harness.
 
+## O que as execuções de 2026-09-26 mostraram
+
+Nove runs com `glm-5.3` nos três papéis, contra o gateway de chat atual
+(Model Studio da Alibaba). O `n` é 1 por tarefa.
+
+**As nove morreram em timeout.** Cinco numa rodada de cinco tarefas do golden
+set, quatro em rodadas de tarefa única. Oito no research, com o teto de 90s, e
+uma no supervisor, com o teto de 20s. Nenhuma produziu briefing. Os artefatos
+são `bruto_20260926T031219Z_891c6c5` e as quatro rodadas de tarefa única em
+`f9eb101`.
+
+**As medições de latência deste gateway mudaram os tetos de timeout.** Medido
+em execução real: supervisor 2,8 a 10,7s; research completou em torno de 130s
+com busca web, depois de estourar os 90s herdados do gateway anterior; analyst
+estourou 90s; critic estourou 45s. Os tetos passaram a supervisor 30s, research
+240s, analyst 240s, critic 150s e writer 120s. O do writer é estimativa com
+folga sobre a medição antiga de 6 a 10s, não medida neste gateway. Commit
+`6969a47`.
+
+## O que a matriz mostrou
+
+A matriz rodou duas vezes em 2026-09-26.
+
+A primeira tentativa (`matriz_20260926T113415Z_891c6c5.json`, limit=1) perdeu
+as cinco linhas para `NodeTimeoutError` antes de qualquer medição. Foi o que
+levantou a recalibração de timeout acima.
+
+A segunda (`matriz_20260926T143350Z_f9eb101.json`, limit=5, 1 repetição por
+linha) produziu números, com taxa de falha alta e denominadores pequenos:
+
+| configuração | falhas | cobertura (n) | incerteza (n) | tokens média (n) | latência média |
+|---|---|---|---|---|---|
+| base-barata | 2 de 5 | 1,00 (2) | 1,00 (1) | 65.883 (3) | 177,0s |
+| sem-critico | 1 de 5 | 0,75 (2) | 1,00 (2) | 41.051 (4) | 102,3s |
+| critico-melhor | 3 de 5 | 1,00 (2) | 0,00 (0) | 48.936 (2) | 114,8s |
+| worker-melhor | 4 de 5 | 0,00 (0) | 1,00 (1) | 76.502 (1) | 126,8s |
+| tudo-melhor | 4 de 5 | 0,00 (0) | 1,00 (1) | 79.028 (1) | 166,4s |
+
+O denominador de cada média está entre parênteses. Em três linhas ele é 0 ou 1.
+As falhas vão de 20% a 80% das tarefas. Com esse `n` e essa taxa de falha, a
+diferença entre configurações não é mensurável. O delta contra a base mede o
+que sobreviveu à execução, não o efeito do modelo. `custo_usd` saiu nulo em
+todas as linhas porque `COST_PER_MTOK_USD` não estava preenchido.
+
+As três hipóteses que a matriz existe para testar continuam sem resposta. O que
+a segunda rodada diz sobre o método: enquanto a taxa de falha não cair para
+perto de zero e cada linha não completar as 3 repetições, qualquer comparação
+de modelo sai enviesada pelo que sobreviveu.
+
 ## Limitações declaradas
 
 O que segue não foi resolvido. Está escrito aqui porque um documento de
 avaliação que esconde os próprios limites não serve para nada.
 
-**Nenhum resultado foi produzido ainda.** A combinação de modelos não foi
-escolhida, então não existe rodada completa. Todas as métricas descritas acima
-têm código e teste, e valor medido nenhum.
+**A combinação de modelos não foi escolhida.** O que está medido está acima. A
+ADR que registra a escolha não existe porque a evidência para escolher ainda
+não saiu.
+
+**Os números da matriz não sustentam comparação de modelo.** A rodada de
+2026-09-26 tem 1 repetição por linha, denominadores de 0 a 4 e taxa de falha
+de 20% a 80%. Está descrita acima porque esconder não ajuda. As 3 repetições
+completas sobre o golden set inteiro ainda não aconteceram.
 
 **O conjunto de calibração do juiz é construído, não amostrado.** São 8 casos,
 4 sustentados e 4 não, escritos para serem inequívocos. Um conjunto sem caso
@@ -227,7 +289,7 @@ com fonte válida passa.
 **O corpus é pequeno.** Seis documentos, 22 chunks. As 7 tarefas que dependem
 dele medem recuperação num universo pequeno demais para o número generalizar.
 
-**A matriz de modelos nunca foi executada.** O instrumento existe e está testado,
-o `eval/matrix.json` está versionado em branco, e nenhuma linha dele foi rodada.
-Enquanto isso, a escolha dos tiers continua em aberto e o repositório não afirma
-nada sobre qual modelo vale em qual papel.
+**A matriz mede o que o gateway deixa passar.** As configurações comparadas
+usam ids do Model Studio da Alibaba. Quem reproduzir com outro provider mede
+outra coisa, e o bloco `config` de cada artefato é o que torna a diferença
+visível.
