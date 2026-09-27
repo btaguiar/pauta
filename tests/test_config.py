@@ -74,3 +74,59 @@ def test_the_shipped_env_example_parses() -> None:
     settings = Settings(_env_file=".env.example")  # type: ignore[call-arg]
     assert settings.COST_PER_MTOK_USD is None
     assert settings.DATABASE_URL.startswith("postgresql://")
+
+
+def test_search_defaults_are_decided_not_inherited() -> None:
+    """O default de região é decisão escrita, não o default do pacote.
+
+    O `ddgs` usa `us-en`. O golden set é em português, e a t09 pergunta sobre
+    chunking para documentação em português. Buscar em inglês americano muda o
+    que volta e cai em cobertura e na groundedness que o juiz avalia.
+    """
+    settings = get_settings()
+    assert settings.SEARCH_PROVIDER == "ddgs"
+    assert settings.SEARCH_REGION == "br-pt"
+    assert settings.SEARCH_BACKEND == "auto"
+    assert settings.WEB_SEARCH_TIMEOUT_S == 10.0
+
+
+def test_search_provider_is_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provider errado falha no carregamento, não dentro da run."""
+    monkeypatch.setenv("SEARCH_PROVIDER", "bing")
+    get_settings.cache_clear()
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)  # type: ignore[call-arg]
+    assert "SEARCH_PROVIDER" in str(excinfo.value)
+
+
+def test_search_backend_is_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Backend digitado errado falha no carregamento, não dentro da run."""
+    monkeypatch.setenv("SEARCH_BACKEND", "gogle")
+    get_settings.cache_clear()
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)  # type: ignore[call-arg]
+    assert "SEARCH_BACKEND" in str(excinfo.value)
+
+
+def test_search_backend_accepts_every_documented_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Os dez motores da documentação do ddgs 9.16.0, um por um.
+
+    A revisão do spec listou nove, sem grokipedia. Este teste é o que impede a
+    lista de encolher de novo.
+    """
+    for engine in (
+        "auto",
+        "bing",
+        "brave",
+        "duckduckgo",
+        "google",
+        "grokipedia",
+        "mojeek",
+        "startpage",
+        "yandex",
+        "yahoo",
+        "wikipedia",
+    ):
+        monkeypatch.setenv("SEARCH_BACKEND", engine)
+        get_settings.cache_clear()
+        assert engine == Settings(_env_file=None).SEARCH_BACKEND  # type: ignore[call-arg]

@@ -8,6 +8,29 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 HitlMode = Literal["auto", "interrupt"]
 
+#: Provedor de busca web. A cota de um provedor só não pode parar o projeto,
+#: então a escolha é configuração e não código (ADR 008). `ddgs` é o default
+#: porque não exige chave e não custa.
+SearchProvider = Literal["tavily", "ddgs"]
+
+#: Engines do metasearch do `ddgs` para `text()`, mais `auto`. A lista vem da
+#: documentação do pacote 9.16.0, e tem dez motores: a revisão do design listou
+#: nove, sem `grokipedia`. Fechar em `Literal` faz o valor digitado errado falhar
+#: no carregamento das settings em vez de dentro da run, depois de gastar token.
+SearchBackend = Literal[
+    "auto",
+    "bing",
+    "brave",
+    "duckduckgo",
+    "google",
+    "grokipedia",
+    "mojeek",
+    "startpage",
+    "yandex",
+    "yahoo",
+    "wikipedia",
+]
+
 #: Gateway dos modelos de chat: Model Studio da Alibaba, em modo compatível com
 #: o protocolo da OpenAI. Serve três casas, Qwen, GLM e DeepSeek, então o juiz de
 #: outro provider que o eval exige é uma troca de id, não uma segunda conta.
@@ -52,6 +75,27 @@ class Settings(BaseSettings):
     EMBEDDING_API_KEY: str | None = None
     EMBEDDING_BASE_URL: str = EMBEDDING_GATEWAY_URL
     TAVILY_API_KEY: str | None = None
+
+    # Busca web (ADR 008). O provedor é escolhível porque a cota de um só não
+    # pode parar o projeto.
+    SEARCH_PROVIDER: SearchProvider = "ddgs"
+    # Região da busca. O `ddgs` usa `us-en` por default, e o golden set é em
+    # português: buscar em inglês americano muda o que volta e cai em `cobertura`
+    # e na groundedness que o juiz avalia. Decisão de 2026-09-27.
+    SEARCH_REGION: str = "br-pt"
+    # Engine do metasearch. `auto` deixa o pacote escolher, e dois runs podem
+    # buscar em motores diferentes, o que torna os artefatos incomparáveis.
+    # Fixar o backend é o que torna a comparação honesta, pelo mesmo motivo pelo
+    # qual a matriz não troca de embedding no meio.
+    SEARCH_BACKEND: SearchBackend = "auto"
+    # Teto efetivo da chamada de busca, e não ajuste fino. É este valor, e não o
+    # `NODE_TIMEOUT_*`, que limita a chamada: a tool é síncrona e roda em thread
+    # do executor, e cancelar a corrotina não mata a thread. O default do `ddgs`
+    # é 5s, curto demais para `max_results=5`. Falta medir se o `timeout` do
+    # `DDGS` vale por requisição HTTP ou pela chamada inteira, e com
+    # `backend="auto"` agregando dez motores 10s pode ser por motor. Só mexa
+    # neste número depois de medir, e escreva a medição aqui.
+    WEB_SEARCH_TIMEOUT_S: float = Field(default=10.0, gt=0)
 
     # Banco. Valor de desenvolvimento idêntico ao do docker-compose.yml.
     DATABASE_URL: str = "postgresql://pauta:pauta@localhost:5432/pauta"
