@@ -113,7 +113,7 @@ o código corrige a decisão dele antes de aplicá-la. As oito ADRs estão em
 | Crítico que não responde reprova | Sem veredito, o material segue como não validado e a ressalva vai no briefing. Aprovar por omissão é o modo de falha que a ADR 002 existe para pegar. [critic.py:83](src/pauta/agents/critic.py#L83) |
 | Um nível de supervisão, não hierarquia | Subgrafo e supervisor de supervisor só entram com justificativa medida no eval. ADR 001 |
 | Nenhum modelo no código | Todo LLM sai de `get_model(role)`, inclusive o juiz do eval. Trocar de provider é editar o `.env`. ADR 007 |
-| Qual combinação de modelos | **Pendente.** A matriz rodou em 2026-09-26, com 1 repetição por linha e falha de 20% a 80% das tarefas. A escolha espera as 3 repetições completas. |
+| Qual combinação de modelos | **Provisória, não medida.** O `.env.example` vem com a linha base-barata da matriz: supervisor `glm-5.3`, worker e critic `qwen3.6-flash`. A matriz rodou em 2026-09-26, com 1 repetição por linha e falha de 20% a 80% das tarefas. A escolha definitiva espera as 3 repetições completas. |
 
 ## Limitações conhecidas
 
@@ -148,7 +148,7 @@ o código corrige a decisão dele antes de aplicá-la. As oito ADRs estão em
 Tudo em container, que é o caminho de quem só quer ver funcionando:
 
 ```
-cp .env.example .env      # preencha as duas chaves e os três MODEL_*
+cp .env.example .env      # preencha as duas chaves; os MODEL_* vêm provisórios
 docker compose up -d --build
 docker compose run --rm index      # indexa samples/, opcional
 
