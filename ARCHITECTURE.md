@@ -181,7 +181,9 @@ repositório roda eval e publica número por cima dele. O escape é
 `DDGS` vale por requisição HTTP, não pela chamada, e uma chamada com `timeout=10`
 levou 31,2s. No piloto da matriz, 20 de 25 runs morreram no timeout de 240s do
 nó, com a busca consumindo o tempo. A tool agora impõe `WEB_SEARCH_TIMEOUT_S`
-à chamada inteira com `asyncio.wait_for`, e o estouro vira `ToolMessage` de erro. Outro risco medido no lock: o
+à chamada inteira com `asyncio.wait_for`, e o estouro vira `ToolMessage` de erro. As
+chamadas de uma mesma rodada também passaram a rodar em paralelo no `run_tools`:
+em fila, o tempo de cada busca somava. Outro risco medido no lock: o
 `ddgs` declara `primp>=1.3.1` sem teto superior, e o lock resolveu
 `primp 2.0.1`, dois majors acima do que o autor testou. A superfície usada
 pelo `ddgs` passou em smoke, e nenhum teste roda busca real.

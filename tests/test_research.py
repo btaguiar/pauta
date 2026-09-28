@@ -230,3 +230,54 @@ async def test_the_researcher_knows_what_day_it_is(settings: Settings) -> None:
     node = make_research_node(model, [], settings)
     await node(state_with(today="2026-09-28"))
     assert "Data de hoje: 2026-09-28" in str(model.calls[0][1].content)
+
+
+async def test_tool_calls_of_one_round_run_at_the_same_time() -> None:
+    """Medido: em fila, as buscas de uma rodada somavam e o nó estourava o timeout."""
+    import asyncio
+    import time
+
+    from langchain_core.tools import tool as make_tool
+
+    from pauta.agents._common import run_tools
+
+    @make_tool
+    async def demorada(query: str) -> str:
+        """Busca que leva 0,2s."""
+        await asyncio.sleep(0.2)
+        return f"achei {query}"
+
+    call = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "demorada", "args": {"query": q}, "id": f"c{q}"} for q in ("a", "b", "c")
+        ],
+    )
+    started = time.perf_counter()
+    messages = await run_tools([demorada], call, node="research", run_id="r1")
+    assert time.perf_counter() - started < 0.5, "três chamadas de 0,2s rodaram em fila"
+    assert [m.content for m in messages] == ["achei a", "achei b", "achei c"]
+    assert [m.tool_call_id for m in messages] == ["ca", "cb", "cc"]
+
+
+async def test_one_failing_call_does_not_sink_the_others() -> None:
+    from langchain_core.tools import tool as make_tool
+
+    from pauta.agents._common import run_tools
+
+    @make_tool
+    def instavel(query: str) -> str:
+        """Falha quando a query é "x"."""
+        if query == "x":
+            raise ConnectionError("fora do ar")
+        return f"ok {query}"
+
+    call = AIMessage(
+        content="",
+        tool_calls=[{"name": "instavel", "args": {"query": q}, "id": f"c{q}"} for q in ("x", "y")]
+        + [{"name": "sumiu", "args": {}, "id": "cz"}],
+    )
+    messages = await run_tools([instavel], call, node="research", run_id="r1")
+    assert [m.status for m in messages] == ["error", "success", "error"]
+    assert "fora do ar" in str(messages[0].content)
+    assert "tool desconhecida" in str(messages[2].content)
