@@ -48,6 +48,26 @@ def test_writer_reserve_must_leave_room_for_work(monkeypatch: pytest.MonkeyPatch
         Settings(_env_file=None)  # type: ignore[call-arg]
 
 
+def test_the_alibaba_key_name_also_works(monkeypatch: pytest.MonkeyPatch) -> None:
+    """É o nome que o painel do provider dá à chave, então quem cola não erra."""
+    monkeypatch.setenv("API_KEY_ALIBABA", "chave-alibaba")
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.CHAT_API_KEY == "chave-alibaba"
+
+
+def test_chat_api_key_wins_when_both_are_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CHAT_API_KEY", "chave-chat")
+    monkeypatch.setenv("API_KEY_ALIBABA", "chave-alibaba")
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.CHAT_API_KEY == "chave-chat"
+
+
+def test_a_blank_alibaba_key_means_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("API_KEY_ALIBABA", "")
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.CHAT_API_KEY is None
+
+
 def test_hitl_mode_is_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HITL_MODE", "talvez")
     get_settings.cache_clear()

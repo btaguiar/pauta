@@ -32,6 +32,7 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
                 "SEARCH_",
                 "WEB_SEARCH_",
                 "TAVILY_",
+                "API_KEY_",
             )
         ):
             monkeypatch.delenv(key, raising=False)

@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 HitlMode = Literal["auto", "interrupt"]
@@ -70,7 +70,12 @@ class Settings(BaseSettings):
     # Dois gateways, os dois falando o protocolo da OpenAI, cada um com a sua
     # chave. Chat e embedding só coincidiriam se o mesmo gateway servisse os
     # dois, e este não serve.
-    CHAT_API_KEY: str | None = None
+    # `API_KEY_ALIBABA` é aceito como segundo nome, porque é como a chave vem
+    # batizada no painel do provider. Com os dois definidos, vale `CHAT_API_KEY`.
+    CHAT_API_KEY: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("CHAT_API_KEY", "API_KEY_ALIBABA"),
+    )
     CHAT_BASE_URL: str = CHAT_GATEWAY_URL
     EMBEDDING_API_KEY: str | None = None
     EMBEDDING_BASE_URL: str = EMBEDDING_GATEWAY_URL

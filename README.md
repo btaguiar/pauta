@@ -158,6 +158,12 @@ curl -s -X POST localhost:8000/runs \
   -d '{"task": "vale a pena migrar de API por token para GPU dedicada?"}'
 ```
 
+A chave do chat entra como `CHAT_API_KEY` ou `API_KEY_ALIBABA`, o nome que o
+painel da Alibaba usa. A do embedding é outra, porque o plano de chat não serve
+embedding: medido em 2026-09-28, 404 para oito modelos de embedding no gateway
+de chat e 401 da mesma chave no `dashscope-intl`. O `.env.example` lista os 11
+modelos de texto do plano, todos testados em chat e em tool call.
+
 O `POST` responde 201 na hora com o `thread_id` e executa em segundo plano.
 `GET /runs/{id}` traz o briefing, as descobertas, as críticas e o custo. O
 teto diário e o rate limit por IP recusam com 503 e 429, com o motivo no corpo.
