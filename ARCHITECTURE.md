@@ -82,6 +82,18 @@ IP na demo pública.
 **Consequência.** O custo aparece no payload de resposta e no log desde o primeiro
 commit. O 503 traz mensagem honesta, com instrução de clonar e rodar local.
 
+**Revisão de 2026-09-28: reserva do writer.** Medido com busca `ddgs`, uma run
+fechou em 74.905 tokens contra o teto de 60.000. Dois furos na camada 1. O writer
+rodava depois do teto, sem reserva, e gastou 13.685. O research parava olhando
+só o que já tinha gastado, e a extração final ainda vinha depois. Agora
+`WRITER_RESERVE_TOKENS` separa uma parte do teto para o writer: supervisor,
+research e analyst trabalham até `BUDGET_TOKENS_PER_RUN - WRITER_RESERVE_TOKENS`.
+Dentro do nó, as rodadas de tool param quando o gasto mais uma chamada do tamanho
+da última não cabe mais, porque o histórico só cresce e a extração custa pelo
+menos isso. Continua sendo teto mole: o critic e a chamada em curso não são
+interrompidos, e o writer pode gastar mais que a reserva. A reserva de 15.000 é
+estimativa sobre uma medição, n=1.
+
 ### ADR 005: vetores em pgvector, não em Chroma embedded
 
 **Contexto.** O compose já sobe Postgres para o checkpointer. Adicionar Chroma

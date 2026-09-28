@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 HitlMode = Literal["auto", "interrupt"]
@@ -112,6 +112,13 @@ class Settings(BaseSettings):
     # sempre acontece.
     MAX_EMPTY_RESEARCH: int = Field(default=2, gt=0)
     BUDGET_TOKENS_PER_RUN: int = Field(default=60_000, gt=0)
+    # Parte do orçamento que só o writer gasta. Os nós de trabalho param em
+    # `BUDGET_TOKENS_PER_RUN - WRITER_RESERVE_TOKENS`, e o writer redige dentro
+    # do que sobrou. Sem reserva, o writer rodava depois do teto e o estouro era
+    # garantido. Medido em 2026-09-28 no gateway de chat atual (glm-5.3, busca
+    # ddgs): o writer gastou 13.685 tokens sobre 47 descobertas (n=1). 15.000 é
+    # estimativa com folga sobre essa medição, não número medido.
+    WRITER_RESERVE_TOKENS: int = Field(default=15_000, ge=0)
     # Um teto por papel, porque o trabalho de cada nó tem duração diferente.
     # Medido em 2026-09-26 contra o gateway de chat atual (Model Studio da
     # Alibaba; supervisor glm-5.3, workers qwen3.6-flash), em execuções reais do
@@ -165,6 +172,13 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.strip():
             return None
         return value
+
+    @model_validator(mode="after")
+    def _reserve_fits_the_budget(self) -> "Settings":
+        """Reserva do tamanho do orçamento não deixa nada para o trabalho."""
+        if self.WRITER_RESERVE_TOKENS >= self.BUDGET_TOKENS_PER_RUN:
+            raise ValueError("WRITER_RESERVE_TOKENS precisa ser menor que BUDGET_TOKENS_PER_RUN")
+        return self
 
 
 @lru_cache

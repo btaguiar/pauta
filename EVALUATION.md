@@ -202,6 +202,16 @@ nunca foi roteado, então não tem medida.
 impede novas rodadas de tool, e não interrompe a chamada em curso, nem a
 extração final, nem o writer. O número serve para conter, não para garantir.
 
+Com busca `ddgs`, em 2026-09-28, uma run fechou em 74.905 tokens: 61.220 até o
+supervisor forçar o writer, e mais 13.685 do writer. Isso virou duas mudanças.
+O writer passou a ter reserva, `WRITER_RESERVE_TOKENS=15000`, e os outros nós
+param antes dela. Dentro do nó, as rodadas de tool param quando a próxima chamada
+projetada não cabe mais. Depois da mudança, e já com a data da run no estado,
+a mesma tarefa fechou em 28.337 tokens com o teto padrão e em 19.858 com teto
+de 30.000 (n=1 cada). Nenhuma das
+duas acionou a rota forçada: são evidência de que o teto foi respeitado, não de
+que a rota forçada funciona ao vivo. Essa parte está coberta só por teste.
+
 **Nada limitava quantas vezes o research era reconvocado, e agora limita.**
 Numa tarefa cuja resposta não está no corpus, o ciclo research com zero
 descobertas seguido de supervisor se repetiu quatro vezes, até o orçamento

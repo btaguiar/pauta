@@ -11,6 +11,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, model_validator
 
 from ..config import Settings, get_settings
+from ..graph.budget import work_budget
 from ..graph.routing import ALL_AGENTS, enforce_rules, fallback_route, forced_route
 from ..graph.state import AgentState, GraphNode, NextStep
 from ..observability import emit, node_span
@@ -69,7 +70,9 @@ def render_state(state: AgentState, settings: Settings) -> str:
             f"Refações usadas: {state.get('critic_loops', 0)}/{settings.MAX_CRITIC_LOOPS}",
             f"Pesquisas sem resultado: {state.get('empty_research', 0)}/"
             f"{settings.MAX_EMPTY_RESEARCH}",
-            f"Tokens usados: {state.get('tokens_used', 0)}/{settings.BUDGET_TOKENS_PER_RUN}",
+            # O limite que o supervisor enxerga é o de trabalho. A reserva do
+            # writer não é orçamento para mais uma volta de research.
+            f"Tokens usados: {state.get('tokens_used', 0)}/{work_budget(settings)}",
             f"Feedback humano: {state.get('hitl_feedback') or 'nenhum'}",
         ]
     )

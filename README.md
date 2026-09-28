@@ -106,7 +106,7 @@ o código corrige a decisão dele antes de aplicá-la. As oito ADRs estão em
 | decisão | por quê |
 |---|---|
 | Predicado de retry próprio, em vez do padrão | O `default_retry_on` do LangGraph retenta 5xx e recusa `ValueError`, mas não retenta 429. Rate limit precisa ser retentado e erro de schema não. [builder.py:31](src/pauta/graph/builder.py#L31) |
-| Orçamento de tokens em duas camadas | Checar o contador só entre nós deixava a run passar de 60k, porque um nó de pesquisa gasta dezenas de milhares de uma vez. A checagem também acontece dentro do nó, entre rodadas de tool. Ainda assim é teto mole: medido, passou 35% em execução real. Com busca web virando padrão pelo `ddgs`, aquele estouro passa a ser caso esperado até o guardrail ser medido de novo. [budget.py](src/pauta/graph/budget.py) |
+| Orçamento de tokens em duas camadas | Checar o contador só entre nós deixava a run passar de 60k, porque um nó de pesquisa gasta dezenas de milhares de uma vez. A checagem também acontece dentro do nó, entre rodadas de tool, e projeta a próxima chamada. O writer tem reserva própria, `WRITER_RESERVE_TOKENS`, e os outros nós param antes dela. Antes da reserva, uma run com `ddgs` fechou em 74.905 tokens. Depois dela, e já com a data da run no estado, duas runs da mesma tarefa fecharam em 28.337 e 19.858 (n=1 cada, a segunda com teto de 30.000). Continua teto mole: a chamada em curso não é interrompida. [budget.py](src/pauta/graph/budget.py) |
 | Teto para pesquisa infrutífera | Uma tarefa sem resposta no corpus fez o supervisor voltar ao research quatro vezes e gastar 58 mil tokens sem chegar ao writer. `MAX_EMPTY_RESEARCH` é simétrico ao `MAX_CRITIC_LOOPS`, e só morde enquanto não há descoberta nenhuma. [routing.py](src/pauta/graph/routing.py) |
 | O LLM propõe a rota, o código dispõe | Limites impostos antes de consultar o modelo, regras reaplicadas depois da resposta, e rota determinística quando o parse falha duas vezes. [routing.py:47](src/pauta/graph/routing.py#L47) |
 | Crítico que não responde reprova | Sem veredito, o material segue como não validado e a ressalva vai no briefing. Aprovar por omissão é o modo de falha que a ADR 002 existe para pegar. [critic.py:83](src/pauta/agents/critic.py#L83) |
@@ -139,9 +139,8 @@ o código corrige a decisão dele antes de aplicá-la. As oito ADRs estão em
   não custa. O pacote declara uso educacional na própria página do PyPI, e isso
   é exposição assumida, registrada na ADR 008. Quem preferir volta para a
   Tavily com `SEARCH_PROVIDER=tavily`, sem commit.
-- Com busca web virando padrão, o estouro de orçamento documentado na seção
-  Números deixa de ser acidente e passa a ser comportamento esperado até o
-  guardrail ser medido de novo.
+- A reserva do writer em 15.000 tokens é estimativa sobre uma medição (n=1).
+  Numa run com muitas descobertas o writer pode passar dela.
 
 ## Rodar
 

@@ -6,6 +6,7 @@ import pytest
 
 from pauta.agents.supervisor import Router, make_supervisor_node, render_state
 from pauta.config import Settings, get_settings
+from pauta.graph.budget import work_budget
 from pauta.graph.state import AgentState, Critique, Finding, new_state
 from pauta.observability import setup_logging
 from tests.fakes import FakeChatModel
@@ -75,7 +76,7 @@ async def test_falls_back_to_the_deterministic_rule_after_two_failures(
 async def test_does_not_call_the_model_when_the_budget_is_gone(settings: Settings) -> None:
     model = FakeChatModel(responses=[])
     node = make_supervisor_node(model, settings)
-    state = state_with(tokens_used=settings.BUDGET_TOKENS_PER_RUN)
+    state = state_with(tokens_used=work_budget(settings))
     assert (await node(state))["next_agent"] == "writer"
     assert model.call_count == 0
 
@@ -128,4 +129,4 @@ async def test_the_model_sees_numbers_not_prose(settings: Settings) -> None:
     assert "último veredito: refinar" in rendered
     assert "falta fonte do preço" in rendered
     assert f"Iterações usadas: 3/{settings.MAX_SUPERVISOR_STEPS}" in rendered
-    assert f"Tokens usados: 12000/{settings.BUDGET_TOKENS_PER_RUN}" in rendered
+    assert f"Tokens usados: 12000/{work_budget(settings)}" in rendered

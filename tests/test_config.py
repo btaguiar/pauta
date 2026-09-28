@@ -9,6 +9,7 @@ def test_defaults_come_from_section_8_3() -> None:
     assert settings.MAX_SUPERVISOR_STEPS == 8
     assert settings.MAX_CRITIC_LOOPS == 2
     assert settings.BUDGET_TOKENS_PER_RUN == 60_000
+    assert settings.WRITER_RESERVE_TOKENS == 15_000
     assert settings.RETRIEVER_TOP_K == 5
     assert settings.HITL_MODE == "auto"
     assert settings.LANGSMITH_TRACING is False
@@ -36,6 +37,14 @@ def test_rejects_impossible_values(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MAX_SUPERVISOR_STEPS", "0")
     get_settings.cache_clear()
     with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_writer_reserve_must_leave_room_for_work(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BUDGET_TOKENS_PER_RUN", "10000")
+    monkeypatch.setenv("WRITER_RESERVE_TOKENS", "10000")
+    get_settings.cache_clear()
+    with pytest.raises(ValidationError, match="WRITER_RESERVE_TOKENS"):
         Settings(_env_file=None)  # type: ignore[call-arg]
 
 
