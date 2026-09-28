@@ -89,15 +89,18 @@ class Settings(BaseSettings):
     # e na groundedness que o juiz avalia. Decisão de 2026-09-27.
     SEARCH_REGION: str = "br-pt"
     # Engine do metasearch. `auto` deixa o pacote escolher, e dois runs podem
-    # buscar em motores diferentes, o que torna os artefatos incomparáveis.
-    # Fixar o backend é o que torna a comparação honesta, pelo mesmo motivo pelo
-    # qual a matriz não troca de embedding no meio.
+    # buscar em motores diferentes, o que custa comparabilidade entre artefatos.
+    # Fica em `auto` mesmo assim, por medição de 2026-09-28: 8 buscas em
+    # sequência, `auto` achou resultado em 7, `yandex` em 5, `yahoo` em 4 e
+    # `duckduckgo` em 1. Fixar o motor custava cobertura demais.
     SEARCH_BACKEND: SearchBackend = "auto"
     # Teto da chamada de busca inteira, imposto por `asyncio.wait_for` na tool.
     # Medido em 2026-09-28: o `timeout` do `DDGS` vale por requisição HTTP, não
     # pela chamada, e com `timeout=10` uma chamada levou 31,2s. O mesmo valor
     # também vai para o `DDGS`, que assim desiste de cada requisição no prazo.
-    WEB_SEARCH_TIMEOUT_S: float = Field(default=10.0, gt=0)
+    # 20s porque, na mesma medição, `auto` teve mediana de 16,7s e máximo de
+    # 37,8s (n=8): com 20, só a busca mais lenta se perde.
+    WEB_SEARCH_TIMEOUT_S: float = Field(default=20.0, gt=0)
 
     # Banco. Valor de desenvolvimento idêntico ao do docker-compose.yml.
     DATABASE_URL: str = "postgresql://pauta:pauta@localhost:5432/pauta"

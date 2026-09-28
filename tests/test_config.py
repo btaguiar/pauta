@@ -116,7 +116,7 @@ def test_search_defaults_are_decided_not_inherited() -> None:
     assert settings.SEARCH_PROVIDER == "ddgs"
     assert settings.SEARCH_REGION == "br-pt"
     assert settings.SEARCH_BACKEND == "auto"
-    assert settings.WEB_SEARCH_TIMEOUT_S == 10.0
+    assert settings.WEB_SEARCH_TIMEOUT_S == 20.0
 
 
 def test_search_provider_is_closed(monkeypatch: pytest.MonkeyPatch) -> None:
