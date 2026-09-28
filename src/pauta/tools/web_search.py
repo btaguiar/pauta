@@ -8,13 +8,20 @@ de saída, para `tools_called` ser comparável entre rodadas. Artefato antigo tr
 A falha da busca não é tratada aqui. `run_tools` em `agents/_common.py` captura
 a exceção, emite o evento `error` e devolve `ToolMessage` de erro. Tratar dentro
 da tool e devolver lista vazia esconderia a falha.
+
+O teto de tempo, sim, é daqui. Medido em 2026-09-28: com `timeout=10` no `DDGS`,
+uma chamada levou 31,2s, e 20 de 25 runs do piloto da matriz morreram no timeout
+de 240s do nó, com a busca consumindo o tempo. O `timeout` do pacote vale por
+requisição HTTP, não pela chamada. O teto que vale é o `asyncio.wait_for` abaixo.
 """
 
+import asyncio
+from collections.abc import Callable
 from functools import lru_cache
 from typing import Any
 
 from ddgs import DDGS
-from langchain_core.tools import BaseTool, tool
+from langchain_core.tools import BaseTool, StructuredTool
 from langchain_tavily import TavilySearch
 
 from ..config import get_settings
@@ -34,6 +41,34 @@ class MissingTavilyKey(RuntimeError):
 
 class WebSearchError(RuntimeError):
     """A busca falhou e o provider devolveu o motivo no corpo da resposta."""
+
+
+class WebSearchTimeout(WebSearchError):
+    """A busca passou de `WEB_SEARCH_TIMEOUT_S`."""
+
+
+def _bounded_tool(search: Callable[[str], str]) -> BaseTool:
+    """Monta a tool com teto de tempo que vale de fato no caminho assíncrono.
+
+    O grafo chama a tool por `ainvoke`, e é nesse caminho que o teto existe: a
+    busca roda numa thread e `wait_for` para de esperar quando o prazo acaba.
+    A thread não é morta, porque Python não mata thread; ela termina sozinha e o
+    resultado é descartado. O caminho síncrono fica sem teto e só serve a teste.
+    """
+
+    async def bounded(query: str) -> str:
+        limit = get_settings().WEB_SEARCH_TIMEOUT_S
+        try:
+            return await asyncio.wait_for(asyncio.to_thread(search, query), timeout=limit)
+        except TimeoutError as exc:
+            raise WebSearchTimeout(f"a busca passou de {limit:g}s e foi abandonada") from exc
+
+    return StructuredTool.from_function(
+        func=search,
+        coroutine=bounded,
+        name=WEB_SEARCH_TOOL_NAME,
+        description="Busca na web e devolve títulos, links e trechos.",
+    )
 
 
 def _format_results(results: list[dict[str, Any]]) -> str:
@@ -58,7 +93,6 @@ def _format_results(results: list[dict[str, Any]]) -> str:
 def _ddgs_tool() -> BaseTool:
     """Busca sem chave e sem custo, sobre o `ddgs`."""
 
-    @tool(WEB_SEARCH_TOOL_NAME)
     def web_search(query: str) -> str:
         """Busca na web e devolve títulos, links e trechos.
 
@@ -77,7 +111,7 @@ def _ddgs_tool() -> BaseTool:
         )
         return _format_results(list(results))
 
-    return web_search
+    return _bounded_tool(web_search)
 
 
 def _tavily_results(payload: object) -> list[dict[str, Any]]:
@@ -119,7 +153,6 @@ def _tavily_tool() -> BaseTool:
         tavily_api_key=settings.TAVILY_API_KEY,
     )
 
-    @tool(WEB_SEARCH_TOOL_NAME)
     def web_search(query: str) -> str:
         """Busca na web e devolve títulos, links e trechos.
 
@@ -132,7 +165,7 @@ def _tavily_tool() -> BaseTool:
         ]
         return _format_results(results)
 
-    return web_search
+    return _bounded_tool(web_search)
 
 
 @lru_cache

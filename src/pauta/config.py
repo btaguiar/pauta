@@ -93,13 +93,10 @@ class Settings(BaseSettings):
     # Fixar o backend é o que torna a comparação honesta, pelo mesmo motivo pelo
     # qual a matriz não troca de embedding no meio.
     SEARCH_BACKEND: SearchBackend = "auto"
-    # Teto efetivo da chamada de busca, e não ajuste fino. É este valor, e não o
-    # `NODE_TIMEOUT_*`, que limita a chamada: a tool é síncrona e roda em thread
-    # do executor, e cancelar a corrotina não mata a thread. O default do `ddgs`
-    # é 5s, curto demais para `max_results=5`. Falta medir se o `timeout` do
-    # `DDGS` vale por requisição HTTP ou pela chamada inteira, e com
-    # `backend="auto"` agregando dez motores 10s pode ser por motor. Só mexa
-    # neste número depois de medir, e escreva a medição aqui.
+    # Teto da chamada de busca inteira, imposto por `asyncio.wait_for` na tool.
+    # Medido em 2026-09-28: o `timeout` do `DDGS` vale por requisição HTTP, não
+    # pela chamada, e com `timeout=10` uma chamada levou 31,2s. O mesmo valor
+    # também vai para o `DDGS`, que assim desiste de cada requisição no prazo.
     WEB_SEARCH_TIMEOUT_S: float = Field(default=10.0, gt=0)
 
     # Banco. Valor de desenvolvimento idêntico ao do docker-compose.yml.

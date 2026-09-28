@@ -1,5 +1,6 @@
 """A fábrica de busca. Nenhum teste aqui toca rede."""
 
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -315,3 +316,55 @@ def test_none_fields_render_as_empty(
     use_search_provider("ddgs")
     tool = ws.get_web_search_tool()
     assert tool.invoke({"query": "x"}) == "title: \nhref: \nbody: "
+
+
+def slow_search(query: str, **kwargs: Any) -> list[dict[str, str]]:
+    """Busca que demora mais que o teto dos testes abaixo."""
+    time.sleep(0.5)
+    return []
+
+
+async def test_async_path_answers_like_the_sync_one(
+    fake_ddgs: FakeDDGS, use_search_provider: Callable[[str], None]
+) -> None:
+    """O grafo chama por `ainvoke`; o teto não pode mudar o que a busca devolve."""
+    use_search_provider("ddgs")
+    out = await ws.get_web_search_tool().ainvoke({"query": "x"})
+    assert "href: https://exemplo.dev/a" in out
+
+
+async def test_a_slow_search_is_abandoned_at_the_deadline(
+    fake_ddgs: FakeDDGS,
+    monkeypatch: pytest.MonkeyPatch,
+    use_search_provider: Callable[[str], None],
+) -> None:
+    """Medido: com timeout=10 no DDGS uma chamada levou 31,2s. O teto é da tool."""
+    monkeypatch.setattr(fake_ddgs, "text", slow_search)
+    monkeypatch.setenv("WEB_SEARCH_TIMEOUT_S", "0.05")
+    use_search_provider("ddgs")
+    started = time.perf_counter()
+    with pytest.raises(ws.WebSearchTimeout, match=r"0\.05s"):
+        await ws.get_web_search_tool().ainvoke({"query": "x"})
+    assert time.perf_counter() - started < 0.4
+
+
+async def test_a_timed_out_search_becomes_an_error_message(
+    fake_ddgs: FakeDDGS,
+    monkeypatch: pytest.MonkeyPatch,
+    use_search_provider: Callable[[str], None],
+) -> None:
+    """No grafo, o estouro vira `ToolMessage` de erro e o nó segue com o resto."""
+    from langchain_core.messages import AIMessage
+
+    from pauta.agents._common import run_tools
+
+    monkeypatch.setattr(fake_ddgs, "text", slow_search)
+    monkeypatch.setenv("WEB_SEARCH_TIMEOUT_S", "0.05")
+    use_search_provider("ddgs")
+    call = AIMessage(
+        content="",
+        tool_calls=[{"name": "web_search", "args": {"query": "x"}, "id": "c1"}],
+    )
+    [message] = await run_tools([ws.get_web_search_tool()], call, node="research", run_id="r1")
+    assert message.status == "error"
+    assert "passou de" in str(message.content)

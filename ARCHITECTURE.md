@@ -177,7 +177,11 @@ comportamento esperado até o guardrail ser medido de novo.
 **Exposição assumida.** A página do `ddgs` no PyPI termina com "Disclaimer:
 This library is for educational purposes only." O autor limita o uso, e este
 repositório roda eval e publica número por cima dele. O escape é
-`SEARCH_PROVIDER=tavily`, que não exige commit. Outro risco medido no lock: o
+`SEARCH_PROVIDER=tavily`, que não exige commit. Medido em 2026-09-28: o `timeout` do
+`DDGS` vale por requisição HTTP, não pela chamada, e uma chamada com `timeout=10`
+levou 31,2s. No piloto da matriz, 20 de 25 runs morreram no timeout de 240s do
+nó, com a busca consumindo o tempo. A tool agora impõe `WEB_SEARCH_TIMEOUT_S`
+à chamada inteira com `asyncio.wait_for`, e o estouro vira `ToolMessage` de erro. Outro risco medido no lock: o
 `ddgs` declara `primp>=1.3.1` sem teto superior, e o lock resolveu
 `primp 2.0.1`, dois majors acima do que o autor testou. A superfície usada
 pelo `ddgs` passou em smoke, e nenhum teste roda busca real.
