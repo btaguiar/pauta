@@ -1,15 +1,16 @@
 """Quais tools o grafo recebe, dado o que o ambiente oferece."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 import pytest
+from langchain_core.tools import BaseTool
 
 from pauta.tools import analyst_tools, research_tools
 from pauta.tools.web_search import MissingTavilyKey
 
 
-def search_tool_names(tools: object) -> set[str]:
-    return {t.name for t in tools}  # type: ignore[attr-defined]
+def search_tool_names(tools: Sequence[BaseTool]) -> set[str]:
+    return {t.name for t in tools}
 
 
 def test_ddgs_needs_no_key(

@@ -2,7 +2,8 @@
 
 O agente recebe as tools prontas. Quem monta o conjunto é o ponto de entrada, e
 monta igual em todos eles: ddgs não pede chave para a busca web, a Tavily exige
-`TAVILY_API_KEY`, sem corpus indexável não há retriever, calculadora sempre.
+`TAVILY_API_KEY`, sem corpus indexável não há retriever. A busca web é do
+`research_tools`, e a calculadora sempre do `analyst_tools`.
 """
 
 from collections.abc import Sequence
@@ -10,7 +11,6 @@ from pathlib import Path
 
 from langchain_core.tools import BaseTool
 
-from ..config import Settings
 from .calculator import get_calculator_tool
 from .retriever import get_retriever_tool, load_documents, samples_dir
 from .web_search import get_web_search_tool
@@ -22,7 +22,7 @@ def corpus_is_empty(directory: Path | None = None) -> bool:
     return not documents
 
 
-def research_tools(settings: Settings | None = None) -> Sequence[BaseTool]:
+def research_tools() -> Sequence[BaseTool]:
     """Busca web pelo provedor configurado, corpus local quando há documento.
 
     `SEARCH_PROVIDER=ddgs` monta a tool sem chave nenhuma.
