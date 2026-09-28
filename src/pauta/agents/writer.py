@@ -8,7 +8,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from ..config import Settings, get_settings
 from ..graph.state import AgentState, GraphNode
 from ..observability import emit, node_span
-from ._common import tokens_from
+from ._common import today_of, tokens_from
 
 WRITER_PROMPT = """Você é o redator de uma equipe de análise. Escreva um briefing curto
 que responda à tarefa, usando apenas o material reunido.
@@ -19,7 +19,8 @@ REGRAS:
    "Não foi possível validar X" é uma frase aceitável e esperada.
 3. Se a tarefa não é respondível com o material disponível, diga isso e explique
    o que faltou. Não invente número, não estime sem dizer que é estimativa.
-4. Frases curtas. Sem travessão."""
+4. Frases curtas. Sem travessão.
+5. "Último", "próximo" e "atual" se resolvem pela data de hoje informada."""
 
 #: Quando o crítico não aprovou, o redator recebe esta instrução a mais.
 UNVALIDATED_NOTICE = """O crítico não aprovou o material. Registre no briefing, de forma
@@ -38,6 +39,7 @@ def render_material(state: AgentState) -> str:
     gaps = [gap for critique in critiques for gap in critique.gaps]
     blocks = [
         f"Tarefa: {state['task']}",
+        f"Data de hoje: {today_of(state)}",
         "",
         "Material reunido:",
         *lines,

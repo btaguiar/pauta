@@ -14,6 +14,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import BaseTool
 
+from ..graph.state import AgentState
 from ..observability import emit
 
 
@@ -74,6 +75,17 @@ async def run_tools(
                 )
             )
     return results
+
+
+def today_of(state: AgentState) -> str:
+    """A data de hoje como os agentes a leem.
+
+    Medido em 2026-09-28: sem a data, uma tarefa sobre "a última decisão do
+    Copom em 2026" mandou o research de volta três vezes para "confirmar a data
+    corrente", e o critic nunca aprovou. Checkpoint de antes deste campo não o
+    tem, e aí o agente lê que a data não foi informada em vez de uma data falsa.
+    """
+    return state.get("today") or "não informada"
 
 
 def unanswered(message: AIMessage) -> list[ToolMessage]:

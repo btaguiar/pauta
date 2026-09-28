@@ -15,7 +15,7 @@ from ..graph.budget import work_budget
 from ..graph.routing import ALL_AGENTS, enforce_rules, fallback_route, forced_route
 from ..graph.state import AgentState, GraphNode, NextStep
 from ..observability import emit, node_span
-from ._common import tokens_from
+from ._common import today_of, tokens_from
 
 SUPERVISOR_PROMPT = """Você é o supervisor de uma equipe de análise. Diante do estado atual
 (tarefa original, descobertas, críticas, iterações restantes, orçamento
@@ -63,6 +63,7 @@ def render_state(state: AgentState, settings: Settings) -> str:
     return "\n".join(
         [
             f"Tarefa: {state['task']}",
+            f"Data de hoje: {today_of(state)}",
             f"Descobertas: {len(state.get('findings', []))}",
             f"Críticas: {len(critiques)} (último veredito: {last_verdict})",
             f"Lacunas apontadas: {gaps if gaps else 'nenhuma'}",

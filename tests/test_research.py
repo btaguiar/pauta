@@ -222,3 +222,11 @@ async def test_a_budget_stop_leaves_no_tool_call_unanswered(settings: Settings) 
 
     extraction = model.calls[-1]
     assert dangling_tool_calls(extraction) == [], "o extractor recebeu conversa inválida"
+
+
+async def test_the_researcher_knows_what_day_it_is(settings: Settings) -> None:
+    """Sem a data, o research voltou três vezes para "confirmar a data corrente"."""
+    model = FakeChatModel(responses=["pronto", ResearchOutput(findings=[])])
+    node = make_research_node(model, [], settings)
+    await node(state_with(today="2026-09-28"))
+    assert "Data de hoje: 2026-09-28" in str(model.calls[0][1].content)

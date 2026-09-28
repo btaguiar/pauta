@@ -212,6 +212,13 @@ de 30.000 (n=1 cada). Nenhuma das
 duas acionou a rota forçada: são evidência de que o teto foi respeitado, não de
 que a rota forçada funciona ao vivo. Essa parte está coberta só por teste.
 
+**Os agentes não sabiam a data de hoje, e agora sabem.** Na mesma run de 74.905
+tokens, a tarefa pedia "a última decisão do Copom em 2026". O critic apontou a
+data corrente como lacuna, o supervisor mandou o research confirmá-la três vezes,
+e o critic nunca aprovou. A data em que a run começa agora fica no estado e chega
+a todos os agentes. Na nova run da mesma tarefa, o critic aprovou na primeira
+volta, em 246,6s contra 806,7s (n=1).
+
 **Nada limitava quantas vezes o research era reconvocado, e agora limita.**
 Numa tarefa cuja resposta não está no corpus, o ciclo research com zero
 descobertas seguido de supervisor se repetiu quatro vezes, até o orçamento

@@ -129,4 +129,5 @@ async def test_the_model_sees_numbers_not_prose(settings: Settings) -> None:
     assert "último veredito: refinar" in rendered
     assert "falta fonte do preço" in rendered
     assert f"Iterações usadas: 3/{settings.MAX_SUPERVISOR_STEPS}" in rendered
+    assert f"Data de hoje: {state['today']}" in rendered
     assert f"Tokens usados: 12000/{work_budget(settings)}" in rendered

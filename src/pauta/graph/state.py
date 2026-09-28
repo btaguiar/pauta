@@ -2,6 +2,7 @@
 
 import operator
 from collections.abc import Awaitable
+from datetime import date
 from typing import Annotated, Any, Literal, Protocol, TypedDict
 
 from langchain_core.messages import AnyMessage
@@ -49,6 +50,9 @@ class AgentState(TypedDict, total=False):
     final_report: str | None
     hitl_feedback: str | None
     run_id: str
+    # Data em que a run começou, em ISO. Fica no estado, e não é lida do relógio
+    # em cada nó, para um resume no dia seguinte não mudar a premissa no meio.
+    today: str
 
 
 class GraphNode(Protocol):
@@ -63,8 +67,12 @@ class GraphNode(Protocol):
     def __call__(self, state: AgentState) -> Awaitable[dict[str, Any]]: ...
 
 
-def new_state(task: str, run_id: str) -> AgentState:
-    """Estado inicial de uma run. Todo contador começa em zero, explicitamente."""
+def new_state(task: str, run_id: str, today: date | None = None) -> AgentState:
+    """Estado inicial de uma run. Todo contador começa em zero, explicitamente.
+
+    `today` só existe para teste. Sem ele, vale a data local de quando a run
+    começa: é o que resolve "a última decisão" ou "o próximo trimestre".
+    """
     return AgentState(
         messages=[],
         task=task,
@@ -78,4 +86,5 @@ def new_state(task: str, run_id: str) -> AgentState:
         final_report=None,
         hitl_feedback=None,
         run_id=run_id,
+        today=(today or date.today()).isoformat(),
     )
