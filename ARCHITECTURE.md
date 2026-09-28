@@ -139,6 +139,42 @@ neste plano", não "a rota não existe". Por isso o embedding tem gateway e chav
 próprios, em `EMBEDDING_BASE_URL` e `EMBEDDING_API_KEY`. São duas chaves para manter
 o índice do corpus independente do plano de chat.
 
+### ADR 008: provedor de busca é configuração, não uma constante
+
+**Contexto.** A busca web era a Tavily e dependia de `TAVILY_API_KEY`. Em
+2026-09-27 a cota da chave acabou, e as 11 tarefas do golden set com
+`needs_research` perderam a fonte externa. O código já rodava sem busca:
+`research_tools()` só montava a tool quando havia chave. Rodar sem busca é
+possível e o README já declarava como limitação. O problema é o eval, que
+precisa da busca nas tarefas externas.
+
+**Decisão.** `SEARCH_PROVIDER` escolhe entre `tavily` e `ddgs`, com default
+`ddgs`. O `ddgs` é metasearch sem chave e sem custo, e a assinatura dele está
+confirmada na documentação do PyPI. Os dois provedores saem com a mesma tool
+`web_search`, o mesmo argumento `query` e o mesmo formato de saída
+`title/href/body`. Nome, argumento e payload unificados: é o que torna dois
+artefatos comparáveis. `SEARCH_REGION` fecha em `br-pt`, porque o golden set é
+em português e o default do pacote é `us-en`. `SEARCH_BACKEND` fecha em
+`Literal`, porque um engine digitado errado só apareceria dentro da run.
+
+**Consequência.** A busca deixa de ser exceção e passa a ser regra, porque o
+`ddgs` não exige chave. O estouro de orçamento de 80.728 tokens contra o teto
+de 60.000, medido numa tarefa com busca em 2026-09-08, sai de acidente e vira
+comportamento esperado até o guardrail ser medido de novo.
+
+**Exposição assumida.** A página do `ddgs` no PyPI termina com "Disclaimer:
+This library is for educational purposes only." O autor limita o uso, e este
+repositório roda eval e publica número por cima dele. O escape é
+`SEARCH_PROVIDER=tavily`, que não exige commit. Outro risco medido no lock: o
+`ddgs` declara `primp>=1.3.1` sem teto superior, e o lock resolveu
+`primp 2.0.1`, dois majors acima do que o autor testou. A superfície usada
+pelo `ddgs` passou em smoke, e nenhum teste roda busca real.
+
+**O que não muda.** A ADR 007 continua valendo: nenhum modelo hardcoded, todo
+LLM vem de `get_model(role)`. A degradação em falha de busca continua vindo do
+`run_tools`, que emite evento `error` e devolve `ToolMessage` de erro. A tool
+não captura exceção, de propósito: tratar dentro dela esconderia a falha.
+
 ## APIs do LangGraph que este projeto usa
 
 Verificadas contra `langgraph 1.2.11`, a versão do lock. Se o pin subir, confira de

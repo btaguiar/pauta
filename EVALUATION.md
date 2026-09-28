@@ -120,6 +120,19 @@ chegar a um arquivo que pode ser comitado. Existe teste que verifica isso.
 
 Rodadas locais ficam fora do git. Só o artefato do CI é publicado.
 
+**Quebra de nome na série de `tools_called`.** Até 2026-09-27 a busca saía como
+`tavily_search`, que é o nome default do `TavilySearch`. Depois sai como
+`web_search`, nos dois provedores. O nome unificado é o que torna a série
+comparável. Quem cruzar artefato antigo com novo precisa saber que o nome
+mudou.
+
+**O payload da busca também mudou.** Os dois provedores agora devolvem o mesmo
+formato, `title`, `href` e `body`, um resultado por bloco. A Tavily entrega
+`url` e `content` por resultado, e o embrulho renomeia. Antes disso, a Tavily
+crua expunha nove argumentos de filtro ao modelo e devolvia o formato dela.
+Comparar rodada com provedor diferente antes e depois dessa normalização é
+comparar duas ferramentas.
+
 ## A matriz de modelos
 
 Uma configuração por vez responde "como está". A pergunta cara é outra: vale
@@ -271,6 +284,19 @@ não saiu.
 2026-09-26 tem 1 repetição por linha, denominadores de 0 a 4 e taxa de falha
 de 20% a 80%. Está descrita acima porque esconder não ajuda. As 3 repetições
 completas sobre o golden set inteiro ainda não aconteceram.
+
+**O bloco `config` ainda não grava o provedor de busca.** Ele grava os modelos,
+a temperatura e os limites do grafo. Gravar `search_provider`,
+`search_backend` e `search_region` está planejado e ainda não implementado. Enquanto
+isso, dois artefatos de rodadas com provedor diferente não são comparáveis, e o
+bloco não diz qual foi.
+
+**A busca web virou padrão e o custo por briefing não foi remido.** O default
+passou a ser `ddgs`, que não exige chave. As 11 tarefas com `needs_research`
+agora buscam por padrão. O estouro de 80.728 tokens documentado acima foi medido
+com busca web e era exceção; agora é caso esperado. A primeira rodada completa
+depois da troca precisa remir o custo por briefing antes de qualquer comparação
+de configuração valer.
 
 **O conjunto de calibração do juiz é construído, não amostrado.** São 8 casos,
 4 sustentados e 4 não, escritos para serem inequívocos. Um conjunto sem caso
