@@ -10,6 +10,7 @@ import pytest
 import matrix
 from matrix import Configuration, ConfigurationResult, InvalidSpec
 from pauta.config import get_settings
+from run_eval import TaskResult
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -297,3 +298,61 @@ def test_the_matrix_artifact_carries_no_secret(
 
     path = matrix.write_matrix([a_result("tudo-barato")], repeats=1, limit=None)
     assert secret not in path.read_text(encoding="utf-8")
+
+
+def a_run(task_id: str, *, error: str | None = None, repeat: int = 0) -> TaskResult:
+    return TaskResult(
+        task_id=task_id,
+        task="briefing",
+        report="" if error else "texto",
+        findings=0,
+        iterations=0,
+        tokens_used=0,
+        latency_s=240.5,
+        error=error,
+        repeat=repeat,
+    )
+
+
+def test_each_failed_run_keeps_its_own_error() -> None:
+    """A contagem de falhas não diz se a linha morreu por timeout ou por schema."""
+    runs = [
+        a_run("t1"),
+        a_run("t2", error="TimeoutError: node research exceeded 240s"),
+        a_run("t2", error="ValidationError: router", repeat=1),
+    ]
+
+    assert matrix.errors_of(runs) == [
+        {
+            "tarefa": "t2",
+            "repeticao": 0,
+            "erro": "TimeoutError: node research exceeded 240s",
+            "latencia_s": 240.5,
+        },
+        {"tarefa": "t2", "repeticao": 1, "erro": "ValidationError: router", "latencia_s": 240.5},
+    ]
+
+
+def test_the_artifact_records_the_error_of_each_failed_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(matrix, "RESULTS_DIR", tmp_path)
+    broken = a_result("tudo-barato", falhas=1)
+    broken.errors = matrix.errors_of([a_run("t2", error="TimeoutError: research")])
+
+    payload = json.loads(
+        matrix.write_matrix([broken], repeats=1, limit=None).read_text(encoding="utf-8")
+    )
+
+    assert payload["configuracoes"][0]["erros"] == [
+        {"tarefa": "t2", "repeticao": 0, "erro": "TimeoutError: research", "latencia_s": 240.5}
+    ]
+
+
+def test_the_table_lists_the_errors_under_the_numbers() -> None:
+    broken = a_result("tudo-barato", falhas=1)
+    broken.errors = matrix.errors_of([a_run("t2", error="TimeoutError: research")])
+
+    table = matrix.render_matrix([broken, a_result("critico-melhor")])
+
+    assert "tudo-barato · t2 r0 · 240.5s · TimeoutError: research" in table

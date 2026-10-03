@@ -148,6 +148,11 @@ que não fixa roda com o valor do `.env`. O artefato grava o valor efetivo de
 cada linha em `limites`, porque o bloco `config` comum sai da última
 configuração que rodou.
 
+Cada execução que falha entra em `erros`, com a tarefa, a repetição, a latência
+e a mensagem. A contagem em `falhas` não diz se a linha morreu por timeout de
+nó, por rate limit ou por schema, e o piloto 2 perdeu 16 de 25 runs sem que o
+artefato dissesse qual foi a causa de cada uma.
+
 Três hipóteses que a matriz existe para testar:
 
 - Router barato não custa qualidade, porque o código já corrige a decisão do
