@@ -12,7 +12,7 @@ from ..config import Settings, get_settings
 from ..graph.budget import would_exhaust
 from ..graph.state import AgentState, Finding, GraphNode
 from ..observability import emit, node_span
-from ._common import run_tools, tokens_from, unanswered
+from ._common import run_tools, today_of, tokens_from, unanswered
 
 RESEARCH_PROMPT = """Você é o pesquisador de uma equipe de análise. Reúna o material
 que responde à tarefa, usando as ferramentas disponíveis.
@@ -21,7 +21,9 @@ REGRAS:
 1. Toda afirmação vem com a fonte de onde saiu: url ou caminho de arquivo.
 2. O que você não encontrou, você diz que não encontrou. Não preencha lacuna com
    suposição.
-3. Não redija o relatório. Só reúna o material."""
+3. Não redija o relatório. Só reúna o material.
+4. A data de hoje vem no pedido. Use-a para saber se um evento já aconteceu.
+   Não pesquise a data de hoje."""
 
 EXTRACTION_PROMPT = """Liste as descobertas do material acima, uma por item, cada uma
 com a fonte exata. Se nada foi encontrado, devolva a lista vazia."""
@@ -53,6 +55,7 @@ def make_research_node(
                 SystemMessage(RESEARCH_PROMPT),
                 HumanMessage(
                     f"Tarefa: {state['task']}\n"
+                    f"Data de hoje: {today_of(state)}\n"
                     f"Lacunas apontadas pelo crítico: {gaps if gaps else 'nenhuma'}"
                 ),
             ]
@@ -60,11 +63,15 @@ def make_research_node(
 
             for _ in range(resolved.MAX_TOOL_ROUNDS):
                 reply = await with_tools.ainvoke(history)
-                tokens += tokens_from(reply)
+                last_call = tokens_from(reply)
+                tokens += last_call
                 history.append(reply)
                 if not isinstance(reply, AIMessage) or not reply.tool_calls:
                     break
-                if would_exhaust(state, resolved, tokens):
+                # A extração depois do laço custa pelo menos o que esta chamada
+                # custou, porque o histórico só cresce. Parar quando ela não
+                # couber mais, e não quando o que já foi gasto passar do teto.
+                if would_exhaust(state, resolved, tokens, next_call=last_call):
                     emit(
                         "error",
                         node="research",

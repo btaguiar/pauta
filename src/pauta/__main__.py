@@ -215,7 +215,7 @@ async def main_async(args: argparse.Namespace) -> int:
                 sys.stdout.write(render_runs(await store.list_runs()))
                 return 0
             graph = build_graph(
-                research_tools=research_tools(settings),
+                research_tools=research_tools(),
                 analyst_tools=analyst_tools(),
                 settings=settings,
                 checkpointer=saver,

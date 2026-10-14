@@ -9,6 +9,7 @@ def test_defaults_come_from_section_8_3() -> None:
     assert settings.MAX_SUPERVISOR_STEPS == 8
     assert settings.MAX_CRITIC_LOOPS == 2
     assert settings.BUDGET_TOKENS_PER_RUN == 60_000
+    assert settings.WRITER_RESERVE_TOKENS == 15_000
     assert settings.RETRIEVER_TOP_K == 5
     assert settings.HITL_MODE == "auto"
     assert settings.LANGSMITH_TRACING is False
@@ -37,6 +38,34 @@ def test_rejects_impossible_values(monkeypatch: pytest.MonkeyPatch) -> None:
     get_settings.cache_clear()
     with pytest.raises(ValidationError):
         Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_writer_reserve_must_leave_room_for_work(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BUDGET_TOKENS_PER_RUN", "10000")
+    monkeypatch.setenv("WRITER_RESERVE_TOKENS", "10000")
+    get_settings.cache_clear()
+    with pytest.raises(ValidationError, match="WRITER_RESERVE_TOKENS"):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_the_alibaba_key_name_also_works(monkeypatch: pytest.MonkeyPatch) -> None:
+    """É o nome que o painel do provider dá à chave, então quem cola não erra."""
+    monkeypatch.setenv("API_KEY_ALIBABA", "chave-alibaba")
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.CHAT_API_KEY == "chave-alibaba"
+
+
+def test_chat_api_key_wins_when_both_are_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CHAT_API_KEY", "chave-chat")
+    monkeypatch.setenv("API_KEY_ALIBABA", "chave-alibaba")
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.CHAT_API_KEY == "chave-chat"
+
+
+def test_a_blank_alibaba_key_means_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("API_KEY_ALIBABA", "")
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.CHAT_API_KEY is None
 
 
 def test_hitl_mode_is_closed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -74,3 +103,66 @@ def test_the_shipped_env_example_parses() -> None:
     settings = Settings(_env_file=".env.example")  # type: ignore[call-arg]
     assert settings.COST_PER_MTOK_USD is None
     assert settings.DATABASE_URL.startswith("postgresql://")
+
+
+def test_search_defaults_are_decided_not_inherited() -> None:
+    """O default de região é decisão escrita, não o default do pacote.
+
+    O `ddgs` usa `us-en`. O golden set é em português, e a t09 pergunta sobre
+    chunking para documentação em português. Buscar em inglês americano muda o
+    que volta e cai em cobertura e na groundedness que o juiz avalia.
+    """
+    settings = get_settings()
+    assert settings.SEARCH_PROVIDER == "ddgs"
+    assert settings.SEARCH_REGION == "br-pt"
+    assert settings.SEARCH_BACKEND == "auto"
+    assert settings.WEB_SEARCH_TIMEOUT_S == 20.0
+
+
+def test_search_provider_is_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provider errado falha no carregamento, não dentro da run."""
+    monkeypatch.setenv("SEARCH_PROVIDER", "bing")
+    get_settings.cache_clear()
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)  # type: ignore[call-arg]
+    assert "SEARCH_PROVIDER" in str(excinfo.value)
+
+
+def test_search_backend_is_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Backend digitado errado falha no carregamento, não dentro da run."""
+    monkeypatch.setenv("SEARCH_BACKEND", "gogle")
+    get_settings.cache_clear()
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)  # type: ignore[call-arg]
+    assert "SEARCH_BACKEND" in str(excinfo.value)
+
+
+def test_search_backend_accepts_every_documented_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Os dez motores documentados do ddgs 9.16.0 mais o sentinela `auto`.
+
+    A revisão do spec listou nove, sem grokipedia. Este teste é o que impede a
+    lista de encolher de novo.
+    """
+    for engine in (
+        "auto",
+        "bing",
+        "brave",
+        "duckduckgo",
+        "google",
+        "grokipedia",
+        "mojeek",
+        "startpage",
+        "yandex",
+        "yahoo",
+        "wikipedia",
+    ):
+        monkeypatch.setenv("SEARCH_BACKEND", engine)
+        get_settings.cache_clear()
+        assert engine == Settings(_env_file=None).SEARCH_BACKEND  # type: ignore[call-arg]
+
+
+def test_web_search_timeout_rejects_non_positive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WEB_SEARCH_TIMEOUT_S", "0")
+    get_settings.cache_clear()
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # type: ignore[call-arg]

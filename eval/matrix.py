@@ -23,7 +23,7 @@ import argparse
 import json
 import os
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,6 +39,7 @@ from run_eval import (
     DEFAULT_REPEATS,
     DEFAULT_TASKS,
     RESULTS_DIR,
+    TaskResult,
     commit_hash,
     config_block,
     load_tasks,
@@ -98,6 +99,9 @@ class ConfigurationResult:
 
     `limits` guarda o valor efetivo, não o que a linha pediu: uma linha que não
     fala do crítico rodou com o do `.env`, e o artefato precisa dizer qual era.
+
+    `errors` guarda o erro de cada execução que falhou. Só a contagem não diz
+    se a linha morreu por timeout de nó, por rate limit ou por schema.
     """
 
     name: str
@@ -105,6 +109,7 @@ class ConfigurationResult:
     notes: str
     metrics: dict[str, Any]
     limits: dict[str, int] = field(default_factory=dict)
+    errors: list[dict[str, Any]] = field(default_factory=list)
 
 
 def load_spec(path: Path) -> list[Configuration]:
@@ -232,7 +237,22 @@ async def run_configuration(
         notes=configuration.notes,
         metrics=metrics,
         limits=limits,
+        errors=errors_of(results),
     )
+
+
+def errors_of(results: Sequence[TaskResult]) -> list[dict[str, Any]]:
+    """Uma entrada por execução que falhou, na ordem em que rodou."""
+    return [
+        {
+            "tarefa": result.task_id,
+            "repeticao": result.repeat,
+            "erro": result.error,
+            "latencia_s": result.latency_s,
+        }
+        for result in results
+        if result.error
+    ]
 
 
 def delta_against(baseline: ConfigurationResult, other: ConfigurationResult) -> dict[str, float]:
@@ -280,6 +300,16 @@ def render_matrix(results: list[ConfigurationResult]) -> str:
         f"{key}_n={baseline.metrics.get(f'{key}_n', 0)}"
         for key in ("cobertura", "incerteza_sinalizada", "fidelidade")
     )
+    failed = [result for result in results if result.errors]
+    if failed:
+        lines += ["", "erros por execução:"]
+        for result in failed:
+            for error in result.errors:
+                lines.append(
+                    f"{result.name} · {error['tarefa']} r{error['repeticao']} · "
+                    f"{error['latencia_s']}s · {error['erro']}"
+                )
+
     lines += [
         "",
         f"denominadores da linha de base: {denominators}",
@@ -311,6 +341,7 @@ def write_matrix(results: list[ConfigurationResult], *, repeats: int, limit: int
                 "modelos": result.models,
                 "limites": result.limits,
                 "metricas": result.metrics,
+                "erros": result.errors,
                 "delta_vs_base": delta_against(baseline, result) if baseline else {},
             }
             for result in results

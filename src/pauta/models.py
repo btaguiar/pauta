@@ -99,7 +99,9 @@ def get_model(role: Role) -> GatewayChatModel:
     """
     settings = get_settings()
     if not settings.CHAT_API_KEY:
-        raise MissingGatewayKey("CHAT_API_KEY não definida; nenhum modelo pode ser criado")
+        raise MissingGatewayKey(
+            "CHAT_API_KEY (ou API_KEY_ALIBABA) não definida; nenhum modelo pode ser criado"
+        )
     name = model_name_for(role)
     return GatewayChatModel(
         model=name,

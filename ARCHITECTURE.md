@@ -82,6 +82,18 @@ IP na demo pública.
 **Consequência.** O custo aparece no payload de resposta e no log desde o primeiro
 commit. O 503 traz mensagem honesta, com instrução de clonar e rodar local.
 
+**Revisão de 2026-09-28: reserva do writer.** Medido com busca `ddgs`, uma run
+fechou em 74.905 tokens contra o teto de 60.000. Dois furos na camada 1. O writer
+rodava depois do teto, sem reserva, e gastou 13.685. O research parava olhando
+só o que já tinha gastado, e a extração final ainda vinha depois. Agora
+`WRITER_RESERVE_TOKENS` separa uma parte do teto para o writer: supervisor,
+research e analyst trabalham até `BUDGET_TOKENS_PER_RUN - WRITER_RESERVE_TOKENS`.
+Dentro do nó, as rodadas de tool param quando o gasto mais uma chamada do tamanho
+da última não cabe mais, porque o histórico só cresce e a extração custa pelo
+menos isso. Continua sendo teto mole: o critic e a chamada em curso não são
+interrompidos, e o writer pode gastar mais que a reserva. A reserva de 15.000 é
+estimativa sobre uma medição, n=1.
+
 ### ADR 005: vetores em pgvector, não em Chroma embedded
 
 **Contexto.** O compose já sobe Postgres para o checkpointer. Adicionar Chroma
@@ -138,6 +150,52 @@ como um modelo de chat fora do plano é recusado, então o que está medido é "
 neste plano", não "a rota não existe". Por isso o embedding tem gateway e chave
 próprios, em `EMBEDDING_BASE_URL` e `EMBEDDING_API_KEY`. São duas chaves para manter
 o índice do corpus independente do plano de chat.
+
+### ADR 008: provedor de busca é configuração, não uma constante
+
+**Contexto.** A busca web era a Tavily e dependia de `TAVILY_API_KEY`. Em
+2026-09-27 a cota da chave acabou, e as 11 tarefas do golden set com
+`needs_research` perderam a fonte externa. O código já rodava sem busca:
+`research_tools()` só montava a tool quando havia chave. Rodar sem busca é
+possível e o README já declarava como limitação. O problema é o eval, que
+precisa da busca nas tarefas externas.
+
+**Decisão.** `SEARCH_PROVIDER` escolhe entre `tavily` e `ddgs`, com default
+`ddgs`. O `ddgs` é metasearch sem chave e sem custo, e a assinatura dele está
+confirmada na documentação do PyPI. Os dois provedores saem com a mesma tool
+`web_search`, o mesmo argumento `query` e o mesmo formato de saída
+`title/href/body`. Nome, argumento e payload unificados: é o que torna dois
+artefatos comparáveis. `SEARCH_REGION` fecha em `br-pt`, porque o golden set é
+em português e o default do pacote é `us-en`. `SEARCH_BACKEND` fecha em
+`Literal`, porque um engine digitado errado só apareceria dentro da run.
+
+**Consequência.** A busca deixa de ser exceção e passa a ser regra, porque o
+`ddgs` não exige chave. O estouro de orçamento de 80.728 tokens contra o teto
+de 60.000, medido numa tarefa com busca em 2026-09-08, sai de acidente e vira
+comportamento esperado até o guardrail ser medido de novo.
+
+**Exposição assumida.** A página do `ddgs` no PyPI termina com "Disclaimer:
+This library is for educational purposes only." O autor limita o uso, e este
+repositório roda eval e publica número por cima dele. O escape é
+`SEARCH_PROVIDER=tavily`, que não exige commit. Medido em 2026-09-28: o `timeout` do
+`DDGS` vale por requisição HTTP, não pela chamada, e uma chamada com `timeout=10`
+levou 31,2s. No piloto da matriz, 20 de 25 runs morreram no timeout de 240s do
+nó, com a busca consumindo o tempo. A tool agora impõe `WEB_SEARCH_TIMEOUT_S`
+à chamada inteira com `asyncio.wait_for`, e o estouro vira `ToolMessage` de erro. As
+chamadas de uma mesma rodada também passaram a rodar em paralelo no `run_tools`:
+em fila, o tempo de cada busca somava. `SEARCH_BACKEND` continua `auto`, por
+medição: fixar o motor custava cobertura, com `duckduckgo` achando resultado em 1
+de 8 buscas contra 7 de 8 do `auto`. O custo assumido é que duas rodadas podem
+buscar em motores diferentes. O teto subiu para 20s, acima da mediana de 16,7s
+do `auto`. Outro risco medido no lock: o
+`ddgs` declara `primp>=1.3.1` sem teto superior, e o lock resolveu
+`primp 2.0.1`, dois majors acima do que o autor testou. A superfície usada
+pelo `ddgs` passou em smoke, e nenhum teste roda busca real.
+
+**O que não muda.** A ADR 007 continua valendo: nenhum modelo hardcoded, todo
+LLM vem de `get_model(role)`. A degradação em falha de busca continua vindo do
+`run_tools`, que emite evento `error` e devolve `ToolMessage` de erro. A tool
+não captura exceção, de propósito: tratar dentro dela esconderia a falha.
 
 ## APIs do LangGraph que este projeto usa
 

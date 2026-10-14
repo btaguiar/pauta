@@ -146,7 +146,7 @@ def select_tasks(
 async def run_task(task: dict[str, Any], *, index: int, repeat: int = 0) -> TaskResult:
     settings = get_settings()
     graph = build_graph(
-        research_tools=tools.research_tools(settings),
+        research_tools=tools.research_tools(),
         analyst_tools=tools.analyst_tools(),
         settings=settings,
         # Em memória, e de propósito: o eval roda dezenas de tarefas descartáveis

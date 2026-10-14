@@ -8,7 +8,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from ..config import Settings, get_settings
 from ..graph.state import AgentState, Critique, GraphNode
 from ..observability import emit, node_span
-from ._common import tokens_from
+from ._common import today_of, tokens_from
 
 CRITIC_PROMPT = """Você é o crítico. Avalie se as descobertas sustentam uma resposta à
 tarefa. Verifique: a fonte existe e é citada? o cálculo confere?
@@ -17,6 +17,9 @@ respondida?
 
 Para cada lacuna, diga qual agente resolve: research quando falta dado ou fonte,
 analyst quando o dado existe e falta processar ou calcular.
+
+A data de hoje vem junto com a tarefa. Use-a para julgar se um evento já
+aconteceu. A data de hoje nunca é lacuna.
 
 Não reescreva a resposta. Só aponte o que falta."""
 
@@ -30,6 +33,7 @@ def render_material(state: AgentState) -> str:
     previous = state.get("critiques", [])
     blocks = [
         f"Tarefa: {state['task']}",
+        f"Data de hoje: {today_of(state)}",
         "",
         "Material reunido:",
         *lines,

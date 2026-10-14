@@ -11,10 +11,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, model_validator
 
 from ..config import Settings, get_settings
+from ..graph.budget import work_budget
 from ..graph.routing import ALL_AGENTS, enforce_rules, fallback_route, forced_route
 from ..graph.state import AgentState, GraphNode, NextStep
 from ..observability import emit, node_span
-from ._common import tokens_from
+from ._common import today_of, tokens_from
 
 SUPERVISOR_PROMPT = """Você é o supervisor de uma equipe de análise. Diante do estado atual
 (tarefa original, descobertas, críticas, iterações restantes, orçamento
@@ -62,6 +63,7 @@ def render_state(state: AgentState, settings: Settings) -> str:
     return "\n".join(
         [
             f"Tarefa: {state['task']}",
+            f"Data de hoje: {today_of(state)}",
             f"Descobertas: {len(state.get('findings', []))}",
             f"Críticas: {len(critiques)} (último veredito: {last_verdict})",
             f"Lacunas apontadas: {gaps if gaps else 'nenhuma'}",
@@ -69,7 +71,9 @@ def render_state(state: AgentState, settings: Settings) -> str:
             f"Refações usadas: {state.get('critic_loops', 0)}/{settings.MAX_CRITIC_LOOPS}",
             f"Pesquisas sem resultado: {state.get('empty_research', 0)}/"
             f"{settings.MAX_EMPTY_RESEARCH}",
-            f"Tokens usados: {state.get('tokens_used', 0)}/{settings.BUDGET_TOKENS_PER_RUN}",
+            # O limite que o supervisor enxerga é o de trabalho. A reserva do
+            # writer não é orçamento para mais uma volta de research.
+            f"Tokens usados: {state.get('tokens_used', 0)}/{work_budget(settings)}",
             f"Feedback humano: {state.get('hitl_feedback') or 'nenhum'}",
         ]
     )

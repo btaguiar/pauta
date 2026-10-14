@@ -105,3 +105,8 @@ def test_material_is_shown_with_agent_and_source() -> None:
     rendered = render_material(with_material())
     assert "[research]" in rendered
     assert "fonte: https://a" in rendered
+
+
+def test_the_critic_judges_against_today() -> None:
+    """A data de hoje não pode virar lacuna, então o crítico a recebe."""
+    assert "Data de hoje: 2026-09-28" in render_material(with_material(today="2026-09-28"))

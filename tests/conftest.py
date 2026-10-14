@@ -8,6 +8,7 @@ import pytest
 
 from pauta.config import Settings, get_settings
 from pauta.memory.checkpointer import loop_factory
+from pauta.tools.web_search import reset_web_search_cache
 
 REQUIRED_ENV = {
     "MODEL_WORKER": "fake/worker",
@@ -21,14 +22,40 @@ REQUIRED_ENV = {
 def isolated_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Isola o ambiente do `.env` da máquina e limpa o cache de settings."""
     for key in list(os.environ):
-        if key.startswith(("MODEL_", "LANGSMITH_", "EMBEDDING_", "JUDGE_", "CHAT_")):
+        if key.startswith(
+            (
+                "MODEL_",
+                "LANGSMITH_",
+                "EMBEDDING_",
+                "JUDGE_",
+                "CHAT_",
+                "SEARCH_",
+                "WEB_SEARCH_",
+                "TAVILY_",
+                "API_KEY_",
+            )
+        ):
             monkeypatch.delenv(key, raising=False)
     for key, value in REQUIRED_ENV.items():
         monkeypatch.setenv(key, value)
     monkeypatch.setitem(Settings.model_config, "env_file", None)
     get_settings.cache_clear()
+    reset_web_search_cache()
     yield
     get_settings.cache_clear()
+    reset_web_search_cache()
+
+
+@pytest.fixture
+def use_search_provider(monkeypatch: pytest.MonkeyPatch) -> Callable[[str], None]:
+    """Troca o provedor de busca e descarta os caches que dependem dele."""
+
+    def set_provider(provider: str) -> None:
+        monkeypatch.setenv("SEARCH_PROVIDER", provider)
+        get_settings.cache_clear()
+        reset_web_search_cache()
+
+    return set_provider
 
 
 def pytest_asyncio_loop_factories(

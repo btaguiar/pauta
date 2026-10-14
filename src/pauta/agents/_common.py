@@ -8,12 +8,14 @@ Estava duplicado em até cinco arquivos, e a duplicação cobrou: a correção d
 conversa inválida por orçamento esgotado precisou ser escrita duas vezes.
 """
 
+import asyncio
 from collections.abc import Sequence
 from typing import Any
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, ToolCall, ToolMessage
 from langchain_core.tools import BaseTool
 
+from ..graph.state import AgentState
 from ..observability import emit
 
 
@@ -36,27 +38,29 @@ async def run_tools(
     node: str,
     run_id: str,
 ) -> list[ToolMessage]:
-    """Executa as tool calls pedidas.
+    """Executa as tool calls pedidas, todas ao mesmo tempo, na ordem pedida.
 
     Falha de tool vira `ToolMessage` de erro, não exceção: uma busca fora do ar
     não derruba a run, ela vira material que o agente lê e contorna.
+
+    As chamadas de uma mesma mensagem são independentes, então rodam em
+    paralelo. Medido em 2026-09-28: em fila, as buscas de uma rodada somavam o
+    tempo de cada uma, e o research estourou o timeout do nó em 20 de 25 runs do
+    piloto da matriz. A resposta sai na ordem das chamadas, não na de chegada.
     """
     by_name = {tool.name: tool for tool in tools}
-    results: list[ToolMessage] = []
-    for call in message.tool_calls:
-        emit("tool_call", node=node, run_id=run_id, tool=call["name"], args=call["args"])
+
+    async def run_one(call: ToolCall) -> ToolMessage:
         tool = by_name.get(call["name"])
         if tool is None:
-            results.append(
-                ToolMessage(
-                    content=f"tool desconhecida: {call['name']}",
-                    tool_call_id=call["id"] or "",
-                    status="error",
-                )
+            return ToolMessage(
+                content=f"tool desconhecida: {call['name']}",
+                tool_call_id=call["id"] or "",
+                status="error",
             )
-            continue
         try:
-            results.append(await tool.ainvoke(call))
+            result: ToolMessage = await tool.ainvoke(call)
+            return result
         except Exception as exc:
             emit(
                 "error",
@@ -66,14 +70,26 @@ async def run_tools(
                 error_type=type(exc).__name__,
                 error=str(exc),
             )
-            results.append(
-                ToolMessage(
-                    content=f"a tool {call['name']} falhou: {exc}",
-                    tool_call_id=call["id"] or "",
-                    status="error",
-                )
+            return ToolMessage(
+                content=f"a tool {call['name']} falhou: {exc}",
+                tool_call_id=call["id"] or "",
+                status="error",
             )
-    return results
+
+    for call in message.tool_calls:
+        emit("tool_call", node=node, run_id=run_id, tool=call["name"], args=call["args"])
+    return list(await asyncio.gather(*(run_one(call) for call in message.tool_calls)))
+
+
+def today_of(state: AgentState) -> str:
+    """A data de hoje como os agentes a leem.
+
+    Medido em 2026-09-28: sem a data, uma tarefa sobre "a última decisão do
+    Copom em 2026" mandou o research de volta três vezes para "confirmar a data
+    corrente", e o critic nunca aprovou. Checkpoint de antes deste campo não o
+    tem, e aí o agente lê que a data não foi informada em vez de uma data falsa.
+    """
+    return state.get("today") or "não informada"
 
 
 def unanswered(message: AIMessage) -> list[ToolMessage]:

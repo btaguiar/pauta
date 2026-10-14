@@ -3,6 +3,7 @@
 from collections.abc import Collection
 
 from ..config import Settings
+from .budget import is_exhausted
 from .state import AgentState, NextStep
 
 #: Todos os nós previstos para a v1. O grafo da semana 1 tem menos, e o
@@ -20,7 +21,8 @@ def fallback_route(state: AgentState) -> NextStep:
 
 
 def budget_exhausted(state: AgentState, settings: Settings) -> bool:
-    return state.get("tokens_used", 0) >= settings.BUDGET_TOKENS_PER_RUN
+    """Acabou a parte de trabalho. O que sobra é a reserva do writer."""
+    return is_exhausted(state, settings)
 
 
 def steps_exhausted(state: AgentState, settings: Settings) -> bool:

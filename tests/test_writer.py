@@ -87,3 +87,14 @@ async def test_emits_final_and_usage(settings: Settings, captured: io.StringIO) 
     assert "usage" in kinds
     usage = next(event for event in events(captured) if event["event"] == "usage")
     assert usage["tokens_used"] == 1050
+
+
+def test_the_writer_resolves_relative_dates_against_today() -> None:
+    assert "Data de hoje: 2026-09-28" in render_material(state_with(today="2026-09-28"))
+
+
+def test_a_checkpoint_without_the_date_says_so() -> None:
+    """Checkpoint de antes do campo: o agente lê a ausência, não uma data inventada."""
+    state = state_with()
+    del state["today"]
+    assert "Data de hoje: não informada" in render_material(state)

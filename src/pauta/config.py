@@ -3,10 +3,33 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 HitlMode = Literal["auto", "interrupt"]
+
+#: Provedor de busca web. A cota de um provedor só não pode parar o projeto,
+#: então a escolha é configuração e não código (ADR 008). `ddgs` é o default
+#: porque não exige chave e não custa.
+SearchProvider = Literal["tavily", "ddgs"]
+
+#: Engines do metasearch do `ddgs` para `text()`, mais `auto`. A lista vem da
+#: documentação do pacote 9.16.0, e tem dez motores: a revisão do design listou
+#: nove, sem `grokipedia`. Fechar em `Literal` faz o valor digitado errado falhar
+#: no carregamento das settings em vez de dentro da run, depois de gastar token.
+SearchBackend = Literal[
+    "auto",
+    "bing",
+    "brave",
+    "duckduckgo",
+    "google",
+    "grokipedia",
+    "mojeek",
+    "startpage",
+    "yandex",
+    "yahoo",
+    "wikipedia",
+]
 
 #: Gateway dos modelos de chat: Model Studio da Alibaba, em modo compatível com
 #: o protocolo da OpenAI. Serve três casas, Qwen, GLM e DeepSeek, então o juiz de
@@ -47,11 +70,37 @@ class Settings(BaseSettings):
     # Dois gateways, os dois falando o protocolo da OpenAI, cada um com a sua
     # chave. Chat e embedding só coincidiriam se o mesmo gateway servisse os
     # dois, e este não serve.
-    CHAT_API_KEY: str | None = None
+    # `API_KEY_ALIBABA` é aceito como segundo nome, porque é como a chave vem
+    # batizada no painel do provider. Com os dois definidos, vale `CHAT_API_KEY`.
+    CHAT_API_KEY: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("CHAT_API_KEY", "API_KEY_ALIBABA"),
+    )
     CHAT_BASE_URL: str = CHAT_GATEWAY_URL
     EMBEDDING_API_KEY: str | None = None
     EMBEDDING_BASE_URL: str = EMBEDDING_GATEWAY_URL
     TAVILY_API_KEY: str | None = None
+
+    # Busca web (ADR 008). O provedor é escolhível porque a cota de um só não
+    # pode parar o projeto.
+    SEARCH_PROVIDER: SearchProvider = "ddgs"
+    # Região da busca. O `ddgs` usa `us-en` por default, e o golden set é em
+    # português: buscar em inglês americano muda o que volta e cai em `cobertura`
+    # e na groundedness que o juiz avalia. Decisão de 2026-09-27.
+    SEARCH_REGION: str = "br-pt"
+    # Engine do metasearch. `auto` deixa o pacote escolher, e dois runs podem
+    # buscar em motores diferentes, o que custa comparabilidade entre artefatos.
+    # Fica em `auto` mesmo assim, por medição de 2026-09-28: 8 buscas em
+    # sequência, `auto` achou resultado em 7, `yandex` em 5, `yahoo` em 4 e
+    # `duckduckgo` em 1. Fixar o motor custava cobertura demais.
+    SEARCH_BACKEND: SearchBackend = "auto"
+    # Teto da chamada de busca inteira, imposto por `asyncio.wait_for` na tool.
+    # Medido em 2026-09-28: o `timeout` do `DDGS` vale por requisição HTTP, não
+    # pela chamada, e com `timeout=10` uma chamada levou 31,2s. O mesmo valor
+    # também vai para o `DDGS`, que assim desiste de cada requisição no prazo.
+    # 20s porque, na mesma medição, `auto` teve mediana de 16,7s e máximo de
+    # 37,8s (n=8): com 20, só a busca mais lenta se perde.
+    WEB_SEARCH_TIMEOUT_S: float = Field(default=20.0, gt=0)
 
     # Banco. Valor de desenvolvimento idêntico ao do docker-compose.yml.
     DATABASE_URL: str = "postgresql://pauta:pauta@localhost:5432/pauta"
@@ -68,6 +117,13 @@ class Settings(BaseSettings):
     # sempre acontece.
     MAX_EMPTY_RESEARCH: int = Field(default=2, gt=0)
     BUDGET_TOKENS_PER_RUN: int = Field(default=60_000, gt=0)
+    # Parte do orçamento que só o writer gasta. Os nós de trabalho param em
+    # `BUDGET_TOKENS_PER_RUN - WRITER_RESERVE_TOKENS`, e o writer redige dentro
+    # do que sobrou. Sem reserva, o writer rodava depois do teto e o estouro era
+    # garantido. Medido em 2026-09-28 no gateway de chat atual (glm-5.3, busca
+    # ddgs): o writer gastou 13.685 tokens sobre 47 descobertas (n=1). 15.000 é
+    # estimativa com folga sobre essa medição, não número medido.
+    WRITER_RESERVE_TOKENS: int = Field(default=15_000, ge=0)
     # Um teto por papel, porque o trabalho de cada nó tem duração diferente.
     # Medido em 2026-09-26 contra o gateway de chat atual (Model Studio da
     # Alibaba; supervisor glm-5.3, workers qwen3.6-flash), em execuções reais do
@@ -121,6 +177,13 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.strip():
             return None
         return value
+
+    @model_validator(mode="after")
+    def _reserve_fits_the_budget(self) -> "Settings":
+        """Reserva do tamanho do orçamento não deixa nada para o trabalho."""
+        if self.WRITER_RESERVE_TOKENS >= self.BUDGET_TOKENS_PER_RUN:
+            raise ValueError("WRITER_RESERVE_TOKENS precisa ser menor que BUDGET_TOKENS_PER_RUN")
+        return self
 
 
 @lru_cache

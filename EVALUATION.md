@@ -120,6 +120,19 @@ chegar a um arquivo que pode ser comitado. Existe teste que verifica isso.
 
 Rodadas locais ficam fora do git. Só o artefato do CI é publicado.
 
+**Quebra de nome na série de `tools_called`.** Até 2026-09-27 a busca saía como
+`tavily_search`, que é o nome default do `TavilySearch`. Depois sai como
+`web_search`, nos dois provedores. O nome unificado é o que torna a série
+comparável. Quem cruzar artefato antigo com novo precisa saber que o nome
+mudou.
+
+**O payload da busca também mudou.** Os dois provedores agora devolvem o mesmo
+formato, `title`, `href` e `body`, um resultado por bloco. A Tavily entrega
+`url` e `content` por resultado, e o embrulho renomeia. Antes disso, a Tavily
+crua expunha nove argumentos de filtro ao modelo e devolvia o formato dela.
+Comparar rodada com provedor diferente antes e depois dessa normalização é
+comparar duas ferramentas.
+
 ## A matriz de modelos
 
 Uma configuração por vez responde "como está". A pergunta cara é outra: vale
@@ -134,6 +147,11 @@ Uma linha também pode fixar `MAX_CRITIC_LOOPS`, e zero desliga o crítico. Linh
 que não fixa roda com o valor do `.env`. O artefato grava o valor efetivo de
 cada linha em `limites`, porque o bloco `config` comum sai da última
 configuração que rodou.
+
+Cada execução que falha entra em `erros`, com a tarefa, a repetição, a latência
+e a mensagem. A contagem em `falhas` não diz se a linha morreu por timeout de
+nó, por rate limit ou por schema, e o piloto 2 perdeu 16 de 25 runs sem que o
+artefato dissesse qual foi a causa de cada uma.
 
 Três hipóteses que a matriz existe para testar:
 
@@ -188,6 +206,23 @@ nunca foi roteado, então não tem medida.
 64.775 tokens contra `BUDGET_TOKENS_PER_RUN=60000`, 35% e 8% acima. O guardrail
 impede novas rodadas de tool, e não interrompe a chamada em curso, nem a
 extração final, nem o writer. O número serve para conter, não para garantir.
+
+Com busca `ddgs`, em 2026-09-28, uma run fechou em 74.905 tokens: 61.220 até o
+supervisor forçar o writer, e mais 13.685 do writer. Isso virou duas mudanças.
+O writer passou a ter reserva, `WRITER_RESERVE_TOKENS=15000`, e os outros nós
+param antes dela. Dentro do nó, as rodadas de tool param quando a próxima chamada
+projetada não cabe mais. Depois da mudança, e já com a data da run no estado,
+a mesma tarefa fechou em 28.337 tokens com o teto padrão e em 19.858 com teto
+de 30.000 (n=1 cada). Nenhuma das
+duas acionou a rota forçada: são evidência de que o teto foi respeitado, não de
+que a rota forçada funciona ao vivo. Essa parte está coberta só por teste.
+
+**Os agentes não sabiam a data de hoje, e agora sabem.** Na mesma run de 74.905
+tokens, a tarefa pedia "a última decisão do Copom em 2026". O critic apontou a
+data corrente como lacuna, o supervisor mandou o research confirmá-la três vezes,
+e o critic nunca aprovou. A data em que a run começa agora fica no estado e chega
+a todos os agentes. Na nova run da mesma tarefa, o critic aprovou na primeira
+volta, em 246,6s contra 806,7s (n=1).
 
 **Nada limitava quantas vezes o research era reconvocado, e agora limita.**
 Numa tarefa cuja resposta não está no corpus, o ciclo research com zero
@@ -271,6 +306,19 @@ não saiu.
 2026-09-26 tem 1 repetição por linha, denominadores de 0 a 4 e taxa de falha
 de 20% a 80%. Está descrita acima porque esconder não ajuda. As 3 repetições
 completas sobre o golden set inteiro ainda não aconteceram.
+
+**O bloco `config` ainda não grava o provedor de busca.** Ele grava os modelos,
+a temperatura e os limites do grafo. Gravar `search_provider`,
+`search_backend` e `search_region` está planejado e ainda não implementado. Enquanto
+isso, dois artefatos de rodadas com provedor diferente não são comparáveis, e o
+bloco não diz qual foi.
+
+**A busca web virou padrão e o custo por briefing não foi remido.** O default
+passou a ser `ddgs`, que não exige chave. As 11 tarefas com `needs_research`
+agora buscam por padrão. O estouro de 80.728 tokens documentado acima foi medido
+com busca web e era exceção; agora é caso esperado. A primeira rodada completa
+depois da troca precisa remir o custo por briefing antes de qualquer comparação
+de configuração valer.
 
 **O conjunto de calibração do juiz é construído, não amostrado.** São 8 casos,
 4 sustentados e 4 não, escritos para serem inequívocos. Um conjunto sem caso

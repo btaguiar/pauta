@@ -1,6 +1,7 @@
 import pytest
 
 from pauta.config import Settings, get_settings
+from pauta.graph.budget import work_budget
 from pauta.graph.routing import enforce_rules, fallback_route, forced_route
 from pauta.graph.state import AgentState, Critique, Finding, NextStep, new_state
 
@@ -34,7 +35,15 @@ def test_fallback_ends_at_writer(settings: Settings) -> None:
 
 
 def test_budget_overrun_forces_the_writer(settings: Settings) -> None:
-    state = state_with(tokens_used=settings.BUDGET_TOKENS_PER_RUN)
+    state = state_with(tokens_used=work_budget(settings))
+    assert forced_route(state, settings) == "writer"
+
+
+def test_the_writer_reserve_is_not_spent_on_research(settings: Settings) -> None:
+    """O limite de trabalho chega antes do teto: o que sobra é do writer."""
+    assert forced_route(state_with(tokens_used=work_budget(settings) - 1), settings) is None
+    state = state_with(tokens_used=work_budget(settings))
+    assert state["tokens_used"] < settings.BUDGET_TOKENS_PER_RUN
     assert forced_route(state, settings) == "writer"
 
 
@@ -64,7 +73,7 @@ def test_writer_does_not_write_about_nothing(settings: Settings) -> None:
 
 def test_empty_writer_rule_yields_to_the_hard_limits(settings: Settings) -> None:
     """Orçamento estourado decide antes, e aí o writer redige com o que houver."""
-    state = state_with(tokens_used=settings.BUDGET_TOKENS_PER_RUN)
+    state = state_with(tokens_used=work_budget(settings))
     assert forced_route(state, settings) == "writer"
 
 

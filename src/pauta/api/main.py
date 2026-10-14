@@ -56,7 +56,7 @@ KEEPALIVE_S = 15.0
 
 def build_graphs(settings: Settings, checkpointer: BaseCheckpointSaver[Any]) -> Graphs:
     """Compila os dois modos uma vez, no startup. Modelo e tool são caros de montar."""
-    research = research_tools(settings)
+    research = research_tools()
     analyst = analyst_tools()
     return {
         mode: build_graph(

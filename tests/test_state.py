@@ -1,4 +1,5 @@
 import operator
+from datetime import date
 from typing import Annotated, get_args, get_type_hints
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -51,3 +52,13 @@ def test_add_messages_appends() -> None:
     merged = add_messages(HumanMessage("pergunta"), AIMessage("resposta"))
     assert isinstance(merged, list)
     assert len(merged) == 2
+
+
+def test_new_state_fixes_the_date_the_run_started() -> None:
+    """Fica no estado para um resume no dia seguinte não mudar a premissa."""
+    state = new_state(task="t", run_id="r1", today=date(2026, 9, 28))
+    assert state["today"] == "2026-09-28"
+
+
+def test_new_state_defaults_to_today() -> None:
+    assert new_state(task="t", run_id="r1")["today"] == date.today().isoformat()

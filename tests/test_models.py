@@ -107,8 +107,9 @@ def test_no_key_fails_before_any_call(monkeypatch: pytest.MonkeyPatch) -> None:
 
     get_settings.cache_clear()
     reset_model_cache()
-    with pytest.raises(MissingGatewayKey, match="CHAT_API_KEY"):
+    with pytest.raises(MissingGatewayKey, match="CHAT_API_KEY") as excinfo:
         get_model("writer")
+    assert "API_KEY_ALIBABA" in str(excinfo.value)
 
 
 def test_structured_method_comes_from_the_measured_table() -> None:

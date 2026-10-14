@@ -77,11 +77,15 @@ def make_analyst_node(
 
             for _ in range(resolved.MAX_TOOL_ROUNDS):
                 reply = await with_tools.ainvoke(history)
-                tokens += tokens_from(reply)
+                last_call = tokens_from(reply)
+                tokens += last_call
                 history.append(reply)
                 if not isinstance(reply, AIMessage) or not reply.tool_calls:
                     break
-                if would_exhaust(state, resolved, tokens):
+                # A extração depois do laço custa pelo menos o que esta chamada
+                # custou, porque o histórico só cresce. Parar quando ela não
+                # couber mais, e não quando o que já foi gasto passar do teto.
+                if would_exhaust(state, resolved, tokens, next_call=last_call):
                     emit(
                         "error",
                         node="analyst",
