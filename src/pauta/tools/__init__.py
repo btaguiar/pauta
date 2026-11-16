@@ -26,8 +26,8 @@ def research_tools() -> Sequence[BaseTool]:
     """Busca web pelo provedor configurado, corpus local quando há documento.
 
     `SEARCH_PROVIDER=ddgs` monta a tool sem chave nenhuma.
-    `SEARCH_PROVIDER=tavily` exige `TAVILY_API_KEY`, e o startup falha dizendo
-    qual variável falta em vez de deixar o research mudo.
+    `SEARCH_PROVIDER=tavily` e `tavily_ddgs` exigem `TAVILY_API_KEY`, e o startup
+    falha dizendo qual variável falta em vez de deixar o research mudo.
     """
     tools: list[BaseTool] = [get_web_search_tool()]
     if not corpus_is_empty():

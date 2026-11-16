@@ -11,7 +11,7 @@ HitlMode = Literal["auto", "interrupt"]
 #: Provedor de busca web. A cota de um provedor só não pode parar o projeto,
 #: então a escolha é configuração e não código (ADR 008). `ddgs` é o default
 #: porque não exige chave e não custa.
-SearchProvider = Literal["tavily", "ddgs"]
+SearchProvider = Literal["tavily", "ddgs", "tavily_ddgs"]
 
 #: Engines do metasearch do `ddgs` para `text()`, mais `auto`. A lista vem da
 #: documentação do pacote 9.16.0, e tem dez motores: a revisão do design listou
@@ -30,6 +30,14 @@ SearchBackend = Literal[
     "yahoo",
     "wikipedia",
 ]
+
+#: Como o gateway de chat autentica. `api_key` manda `CHAT_API_KEY` como Bearer
+#: (Model Studio da Alibaba e outros gateways com chave fixa). `google` usa as
+#: credenciais padrão do Google (`gcloud auth application-default login` ou
+#: `GOOGLE_APPLICATION_CREDENTIALS`) e renova o token quando ele vence, porque o
+#: endpoint compatível com OpenAI do Vertex aceita só token OAuth, que vale uma
+#: hora, e uma matriz de eval passa disso (ADR 014).
+ChatAuth = Literal["api_key", "google"]
 
 #: Gateway dos modelos de chat: Model Studio da Alibaba, em modo compatível com
 #: o protocolo da OpenAI. Serve três casas, Qwen, GLM e DeepSeek, então o juiz de
@@ -77,12 +85,15 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("CHAT_API_KEY", "API_KEY_ALIBABA"),
     )
     CHAT_BASE_URL: str = CHAT_GATEWAY_URL
+    CHAT_AUTH: ChatAuth = "api_key"
     EMBEDDING_API_KEY: str | None = None
     EMBEDDING_BASE_URL: str = EMBEDDING_GATEWAY_URL
     TAVILY_API_KEY: str | None = None
 
     # Busca web (ADR 008). O provedor é escolhível porque a cota de um só não
-    # pode parar o projeto.
+    # pode parar o projeto. `tavily_ddgs` usa a Tavily e cai no `ddgs` quando
+    # ela falha (ADR 015): em 2026-11-15 o `ddgs` só achava resultado em `yahoo`
+    # e `yandex`, e de forma irregular. O default segue `ddgs` por não exigir chave.
     SEARCH_PROVIDER: SearchProvider = "ddgs"
     # Região da busca. O `ddgs` usa `us-en` por default, e o golden set é em
     # português: buscar em inglês americano muda o que volta e cai em `cobertura`
@@ -138,6 +149,19 @@ class Settings(BaseSettings):
     NODE_TIMEOUT_CRITIC_S: float = Field(default=150.0, gt=0)
     NODE_TIMEOUT_ANALYST_S: float = Field(default=240.0, gt=0)
     NODE_RETRIES: int = Field(default=2, ge=0)
+    # Teto de cada chamada ao modelo, imposto pelo cliente HTTP, que refaz a
+    # chamada estourada até `MODEL_MAX_RETRIES` vezes. Sem ele, o cliente da
+    # OpenAI espera 600s por leitura, e o teto do nó mata a run inteira. Medido
+    # em 2026-11-16 no Vertex (Argon): chamadas de supervisor com os mesmos ~500
+    # tokens levaram 3s ou travaram até 170s nas rodadas, e uma sonda ficou mais
+    # de 14 min presa sem resposta. O supervisor tem teto próprio e curto (mediana
+    # de 5s em 161 chamadas), para a nova tentativa acontecer antes de o nó
+    # morrer: com o default de 30s no nó, cabe uma chamada; com os 180s usados
+    # no eval do Gemini, cabem as três. Os outros papéis usam 150s: a maior
+    # chamada de writer medida levou 101s.
+    MODEL_REQUEST_TIMEOUT_S: float = Field(default=150.0, gt=0)
+    MODEL_REQUEST_TIMEOUT_SUPERVISOR_S: float = Field(default=30.0, gt=0)
+    MODEL_MAX_RETRIES: int = Field(default=2, ge=0)
     # Sem teto, um agente com tool entra em loop de chamadas sozinho.
     MAX_TOOL_ROUNDS: int = Field(default=3, gt=0)
 

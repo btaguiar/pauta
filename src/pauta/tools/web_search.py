@@ -1,4 +1,4 @@
-"""Busca web. Um provedor por vez, escolhido por configuração.
+"""Busca web. Provedor escolhido por configuração, com reserva opcional (ADR 015).
 
 Wrapper fino: trocar de provedor é este arquivo. Os dois provedores saem com o
 mesmo nome de tool, `web_search`, o mesmo argumento `query` e o mesmo formato
@@ -90,7 +90,7 @@ def _format_results(results: list[dict[str, Any]]) -> str:
     return "\n\n".join(blocks)
 
 
-def _ddgs_tool() -> BaseTool:
+def _ddgs_search() -> Callable[[str], str]:
     """Busca sem chave e sem custo, sobre o `ddgs`."""
 
     def web_search(query: str) -> str:
@@ -111,7 +111,7 @@ def _ddgs_tool() -> BaseTool:
         )
         return _format_results(list(results))
 
-    return _bounded_tool(web_search)
+    return web_search
 
 
 def _tavily_results(payload: object) -> list[dict[str, Any]]:
@@ -137,7 +137,7 @@ def _tavily_results(payload: object) -> list[dict[str, Any]]:
     return results
 
 
-def _tavily_tool() -> BaseTool:
+def _tavily_search() -> Callable[[str], str]:
     """Busca sobre a Tavily, já com o nome e o formato unificados.
 
     O `TavilySearch` cru expõe os filtros do provider e devolve `title`, `url`
@@ -165,7 +165,37 @@ def _tavily_tool() -> BaseTool:
         ]
         return _format_results(results)
 
-    return _bounded_tool(web_search)
+    return web_search
+
+
+def _tavily_then_ddgs() -> Callable[[str], str]:
+    """Tavily primeiro; se ela falhar por qualquer motivo, o `ddgs` (ADR 015).
+
+    A Tavily é a busca estável, mas tem cota mensal, e foi a cota que derrubou a
+    busca em 2026-09-27. O `ddgs` cobre a cota esgotada e a queda do provider.
+    Se os dois falham, a exceção diz o motivo de cada um e sobe para o
+    `run_tools`, como nos provedores sozinhos.
+    """
+    primary = _tavily_search()
+    fallback = _ddgs_search()
+
+    def web_search(query: str) -> str:
+        """Busca na web e devolve títulos, links e trechos.
+
+        Args:
+            query: o que procurar.
+        """
+        try:
+            return primary(query)
+        except Exception as first:
+            try:
+                return fallback(query)
+            except Exception as second:
+                raise WebSearchError(
+                    f"tavily falhou ({first}); ddgs também falhou ({second})"
+                ) from second
+
+    return web_search
 
 
 @lru_cache
@@ -174,10 +204,14 @@ def get_web_search_tool() -> BaseTool:
 
     `SEARCH_PROVIDER` é `Literal`, então o pydantic já recusou valor inválido no
     carregamento das settings. Não há branch de erro aqui: seria código morto.
+    `tavily_ddgs` é a Tavily com o `ddgs` de reserva.
     """
-    if get_settings().SEARCH_PROVIDER == "ddgs":
-        return _ddgs_tool()
-    return _tavily_tool()
+    provider = get_settings().SEARCH_PROVIDER
+    if provider == "ddgs":
+        return _bounded_tool(_ddgs_search())
+    if provider == "tavily":
+        return _bounded_tool(_tavily_search())
+    return _bounded_tool(_tavily_then_ddgs())
 
 
 def reset_web_search_cache() -> None:

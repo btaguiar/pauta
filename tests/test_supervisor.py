@@ -131,3 +131,16 @@ async def test_the_model_sees_numbers_not_prose(settings: Settings) -> None:
     assert f"Iterações usadas: 3/{settings.MAX_SUPERVISOR_STEPS}" in rendered
     assert f"Data de hoje: {state['today']}" in rendered
     assert f"Tokens usados: 12000/{work_budget(settings)}" in rendered
+
+
+async def test_a_timed_out_model_is_not_asked_again(
+    settings: Settings, captured: io.StringIO
+) -> None:
+    """O cliente já refez a chamada; repetir aqui levaria o nó ao teto dele."""
+    from langchain_core.exceptions import ModelTimeoutError
+
+    model = FakeChatModel(responses=[ModelTimeoutError("prazo"), ValueError("não devia chegar")])
+    node = make_supervisor_node(model, settings)
+    result = await node(state_with())
+    assert result["next_agent"] == "research"
+    assert model.call_count == 1

@@ -77,9 +77,13 @@ material que os agentes reuniram?
 A escala é binária, sim ou não. Escala de 1 a 5 tem âncora instável entre
 execuções e entre modelos, e a média de notas instáveis parece precisa sem ser.
 
-O juiz vem de `JUDGE_MODEL`, que precisa apontar para um provider diferente do
-executor. Modelo que julga a própria saída se prefere. O gateway de chat serve
-Qwen, GLM e DeepSeek, então essa exigência é uma troca de id na mesma chave.
+O juiz vem de `JUDGE_MODEL`, que deveria apontar para um provider diferente do
+executor. Modelo que julga a própria saída se prefere. **Desde 2026-11-14 essa
+regra não é cumprida, por decisão (ADR 014):** o executor e o juiz são da
+família Gemini 4, e o juiz é o `gemini-4-carbon`, que não executa nenhum papel
+fora da linha `tudo-melhor` da matriz. O viés da mesma casa não está
+descartado, e a calibração abaixo, medida com o `qwen3.8-max`, tem de rodar de
+novo com o Carbon antes de a fidelidade valer.
 
 Juiz que falha devolve "não julgado", que não é o mesmo que "não sustentado".
 Um juiz fora do ar não é evidência de briefing ruim.
@@ -320,6 +324,12 @@ com busca web e era exceção; agora é caso esperado. A primeira rodada complet
 depois da troca precisa remir o custo por briefing antes de qualquer comparação
 de configuração valer.
 
+**Rodadas a partir de 2026-11-15 buscam na Tavily (ADR 015).** A primeira rodada
+do Gemini rodou com `ddgs`, e a busca dominou o tempo: 4 a 6 minutos por chamada
+de pesquisa, quase sempre sem resultado. As rodadas seguintes usam
+`SEARCH_PROVIDER=tavily_ddgs`. Fidelidade e cobertura dessa primeira rodada não
+são comparáveis com as seguintes, porque a pesquisa trouxe outra coisa.
+
 **O conjunto de calibração do juiz é construído, não amostrado.** São 8 casos,
 4 sustentados e 4 não, escritos para serem inequívocos. Um conjunto sem caso
 difícil superestima a concordância. Antes de publicar qualquer número de
@@ -338,6 +348,7 @@ com fonte válida passa.
 dele medem recuperação num universo pequeno demais para o número generalizar.
 
 **A matriz mede o que o gateway deixa passar.** As configurações comparadas
-usam ids do Model Studio da Alibaba. Quem reproduzir com outro provider mede
+usam ids do Gemini 4 no Vertex AI (desde 2026-11-14; antes, do Model Studio da
+Alibaba). Quem reproduzir com outro provider mede
 outra coisa, e o bloco `config` de cada artefato é o que torna a diferença
 visível.

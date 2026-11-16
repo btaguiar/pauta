@@ -1,41 +1,41 @@
 {
-  "sobre": "Configurações comparadas por eval/matrix.py. Os ids são os nomes nus do gateway de chat, sem a casa de origem (qwen3.6-flash, qwen3.8-max, glm-5.3), medidos em 2026-09-25 pela própria API. Esta é a matriz medida, versionada para que o eval publicado seja reproduzível; rodar é comando deliberado de quem tem a própria chave, e nenhum modelo tem default no código (ADR 007). A primeira configuração é a linha de base, e os deltas saem contra ela. O supervisor é glm-5.3 em todas as linhas, decisão de 2026-09-26: o que a matriz mede é critic e worker. MAX_CRITIC_LOOPS é opcional por linha; ausente, vale o do .env.",
+  "sobre": "Configurações comparadas por eval/matrix.py. Desde 2026-11-14 a matriz é do Gemini 4 no Vertex AI (ADR 014): google/gemini-4-hydrogen (o rápido), google/gemini-4-argon (raciocínio para agentes) e google/gemini-4-carbon (o mais forte), sondados em 2026-11-14 pela própria API. A matriz anterior, do Model Studio da Alibaba (qwen3.6-flash, qwen3.8-max, glm-5.3), está no histórico do git e nos artefatos de 2026-09-26. Esta é a matriz medida, versionada para que o eval publicado seja reproduzível; rodar é comando deliberado de quem tem o próprio projeto no GCP, e nenhum modelo tem default no código (ADR 007). A primeira configuração é a linha de base, e os deltas saem contra ela. O supervisor é o Argon em todas as linhas: o que a matriz mede é critic e worker. MAX_CRITIC_LOOPS é opcional por linha; ausente, vale o do .env. O juiz é o Carbon (JUDGE_MODEL), que não executa papel em nenhuma linha exceto tudo-melhor.",
   "configuracoes": [
     {
       "nome": "base-barata",
-      "nota": "linha de base: worker e critic no flash barato. Se ela empatar com as outras, o modelo caro não se paga.",
-      "MODEL_ROUTER": "glm-5.3",
-      "MODEL_CRITIC": "qwen3.6-flash",
-      "MODEL_WORKER": "qwen3.6-flash"
+      "nota": "linha de base: worker e critic no Hydrogen. Se ela empatar com as outras, o modelo caro não se paga.",
+      "MODEL_ROUTER": "google/gemini-4-argon",
+      "MODEL_CRITIC": "google/gemini-4-hydrogen",
+      "MODEL_WORKER": "google/gemini-4-hydrogen"
     },
     {
       "nome": "sem-critico",
       "nota": "os mesmos modelos da base-barata, com o crítico desligado. A diferença entre esta linha e a base é o que o crítico barato compra. Junto com critico-melhor, fecha as três condições: sem crítico, crítico barato, crítico melhor.",
-      "MODEL_ROUTER": "glm-5.3",
-      "MODEL_CRITIC": "qwen3.6-flash",
-      "MODEL_WORKER": "qwen3.6-flash",
+      "MODEL_ROUTER": "google/gemini-4-argon",
+      "MODEL_CRITIC": "google/gemini-4-hydrogen",
+      "MODEL_WORKER": "google/gemini-4-hydrogen",
       "MAX_CRITIC_LOOPS": "0"
     },
     {
       "nome": "critico-melhor",
-      "nota": "o teste que mais importa. Critico fraco tende a carimbar verdict ok, e ai o loop de critica inteiro vira enfeite (ADR 002).",
-      "MODEL_ROUTER": "glm-5.3",
-      "MODEL_CRITIC": "qwen3.8-max",
-      "MODEL_WORKER": "qwen3.6-flash"
+      "nota": "o teste que mais importa, e a escolha provisória do .env.example. Critico fraco tende a carimbar verdict ok, e ai o loop de critica inteiro vira enfeite (ADR 002).",
+      "MODEL_ROUTER": "google/gemini-4-argon",
+      "MODEL_CRITIC": "google/gemini-4-argon",
+      "MODEL_WORKER": "google/gemini-4-hydrogen"
     },
     {
       "nome": "worker-melhor",
-      "nota": "pesquisa, analise e redacao com modelo melhor, critica barata.",
-      "MODEL_ROUTER": "glm-5.3",
-      "MODEL_CRITIC": "qwen3.6-flash",
-      "MODEL_WORKER": "qwen3.8-max"
+      "nota": "pesquisa, analise e redacao no Argon, critica barata.",
+      "MODEL_ROUTER": "google/gemini-4-argon",
+      "MODEL_CRITIC": "google/gemini-4-hydrogen",
+      "MODEL_WORKER": "google/gemini-4-argon"
     },
     {
       "nome": "tudo-melhor",
-      "nota": "teto de qualidade e de custo. Serve para saber quanto se perde economizando.",
-      "MODEL_ROUTER": "glm-5.3",
-      "MODEL_CRITIC": "qwen3.8-max",
-      "MODEL_WORKER": "qwen3.8-max"
+      "nota": "teto de qualidade e de custo: critic e worker no Carbon. Serve para saber quanto se perde economizando. Aqui o juiz coincide com o executor, e a fidelidade desta linha leva essa ressalva.",
+      "MODEL_ROUTER": "google/gemini-4-argon",
+      "MODEL_CRITIC": "google/gemini-4-carbon",
+      "MODEL_WORKER": "google/gemini-4-carbon"
     }
   ]
 }

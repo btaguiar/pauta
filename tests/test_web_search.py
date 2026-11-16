@@ -368,3 +368,60 @@ async def test_a_timed_out_search_becomes_an_error_message(
     [message] = await run_tools([ws.get_web_search_tool()], call, node="research", run_id="r1")
     assert message.status == "error"
     assert "passou de" in str(message.content)
+
+
+def test_fallback_uses_tavily_when_it_answers(
+    fake_ddgs: FakeDDGS,
+    fake_tavily: FakeTavilySearch,
+    monkeypatch: pytest.MonkeyPatch,
+    use_search_provider: Callable[[str], None],
+) -> None:
+    monkeypatch.setenv("TAVILY_API_KEY", "chave-fake")
+    use_search_provider("tavily_ddgs")
+    tool = ws.get_web_search_tool()
+    assert tool.name == "web_search"
+    out = tool.invoke({"query": "selic"})
+    assert "href: https://exemplo.dev/a" in out
+    assert fake_tavily.calls == [{"query": "selic"}]
+    assert fake_ddgs.calls == []
+
+
+def test_fallback_falls_to_ddgs_when_tavily_fails(
+    fake_ddgs: FakeDDGS,
+    fake_tavily: FakeTavilySearch,
+    monkeypatch: pytest.MonkeyPatch,
+    use_search_provider: Callable[[str], None],
+) -> None:
+    """Cota esgotada chega como `{"error": ...}`; a busca segue no `ddgs`."""
+    monkeypatch.setattr(fake_tavily, "invoke", lambda payload: {"error": "quota exceeded"})
+    monkeypatch.setenv("TAVILY_API_KEY", "chave-fake")
+    use_search_provider("tavily_ddgs")
+    out = ws.get_web_search_tool().invoke({"query": "selic"})
+    assert "href: https://exemplo.dev/a" in out
+    assert [q for q, _ in fake_ddgs.calls] == ["selic"]
+
+
+def test_fallback_reports_both_failures(
+    fake_ddgs: FakeDDGS,
+    fake_tavily: FakeTavilySearch,
+    monkeypatch: pytest.MonkeyPatch,
+    use_search_provider: Callable[[str], None],
+) -> None:
+    def explode(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("No results found.")
+
+    monkeypatch.setattr(fake_tavily, "invoke", lambda payload: {"error": "quota exceeded"})
+    monkeypatch.setattr(fake_ddgs, "text", explode)
+    monkeypatch.setenv("TAVILY_API_KEY", "chave-fake")
+    use_search_provider("tavily_ddgs")
+    with pytest.raises(ws.WebSearchError, match=r"quota exceeded.*No results found"):
+        ws.get_web_search_tool().invoke({"query": "selic"})
+
+
+def test_fallback_without_tavily_key_fails_with_a_clear_message(
+    monkeypatch: pytest.MonkeyPatch, use_search_provider: Callable[[str], None]
+) -> None:
+    monkeypatch.setenv("TAVILY_API_KEY", "")
+    use_search_provider("tavily_ddgs")
+    with pytest.raises(ws.MissingTavilyKey, match="TAVILY_API_KEY"):
+        ws.get_web_search_tool()

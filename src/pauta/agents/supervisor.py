@@ -6,6 +6,7 @@ O agente define comportamento e não instancia cliente. O modelo chega pronto.
 from collections.abc import Collection
 from typing import Any
 
+from langchain_core.exceptions import ModelTimeoutError
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, model_validator
@@ -132,6 +133,11 @@ def make_supervisor_node(
                         error_type=type(exc).__name__,
                         error=str(exc),
                     )
+                    # Prazo estourado já passou pelas novas tentativas do cliente
+                    # (`MODEL_MAX_RETRIES`). Repetir aqui dobraria a espera e
+                    # levaria o nó ao próprio teto, que mata a run.
+                    if isinstance(exc, ModelTimeoutError | TimeoutError):
+                        break
 
             if decision is None:
                 route = fallback_route(state)

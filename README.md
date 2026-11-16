@@ -113,7 +113,7 @@ o código corrige a decisão dele antes de aplicá-la. As oito ADRs estão em
 | Crítico que não responde reprova | Sem veredito, o material segue como não validado e a ressalva vai no briefing. Aprovar por omissão é o modo de falha que a ADR 002 existe para pegar. [critic.py:83](src/pauta/agents/critic.py#L83) |
 | Um nível de supervisão, não hierarquia | Subgrafo e supervisor de supervisor só entram com justificativa medida no eval. ADR 001 |
 | Nenhum modelo no código | Todo LLM sai de `get_model(role)`, inclusive o juiz do eval. Trocar de provider é editar o `.env`. ADR 007 |
-| Qual combinação de modelos | **Provisória, não medida.** O `.env.example` vem com a linha base-barata da matriz: supervisor `glm-5.3`, worker e critic `qwen3.6-flash`. A matriz rodou em 2026-09-26, com 1 repetição por linha e falha de 20% a 80% das tarefas. A escolha definitiva espera as 3 repetições completas. |
+| Qual combinação de modelos | **Provisória, não medida.** Desde 2026-11-14 o chat é o Gemini 4 no Vertex AI (ADR 014): supervisor e critic no `gemini-4-argon`, worker no `gemini-4-hydrogen` e juiz no `gemini-4-carbon`. A matriz anterior, no gateway da Alibaba (2026-09-26), teve 1 repetição por linha e falha de 20% a 80% das tarefas; a escolha definitiva espera a matriz do Gemini com 3 repetições completas. |
 
 ## Limitações conhecidas
 
@@ -138,8 +138,9 @@ o código corrige a decisão dele antes de aplicá-la. As oito ADRs estão em
   `GET /health` responde `budget_enforceable: false`, e é literalmente isso.
 - O provedor de busca é configurável. O default é `ddgs`, que não exige chave e
   não custa. O pacote declara uso educacional na própria página do PyPI, e isso
-  é exposição assumida, registrada na ADR 008. Quem preferir volta para a
-  Tavily com `SEARCH_PROVIDER=tavily`, sem commit.
+  é exposição assumida, registrada na ADR 008. O eval usa
+  `SEARCH_PROVIDER=tavily_ddgs`, a Tavily com o `ddgs` de reserva (ADR 015),
+  porque em 2026-11-15 o `ddgs` sozinho achava resultado em poucas buscas.
 - A reserva do writer em 15.000 tokens é estimativa sobre uma medição (n=1).
   Numa run com muitas descobertas o writer pode passar dela.
 
@@ -158,8 +159,11 @@ curl -s -X POST localhost:8000/runs \
   -d '{"task": "vale a pena migrar de API por token para GPU dedicada?"}'
 ```
 
-A chave do chat entra como `CHAT_API_KEY` ou `API_KEY_ALIBABA`, o nome que o
-painel da Alibaba usa. A do embedding é outra, porque o plano de chat não serve
+O chat não usa chave: com `CHAT_AUTH=google`, o token sai das credenciais
+padrão do Google (`gcloud auth application-default login`), e `CHAT_BASE_URL`
+aponta para o Vertex do seu projeto, na região `global` (ADR 014). Para voltar
+ao gateway da Alibaba, use `CHAT_AUTH=api_key` e a chave em `CHAT_API_KEY` ou
+`API_KEY_ALIBABA`. A do embedding é outra, porque o plano de chat não serve
 embedding: medido em 2026-09-28, 404 para oito modelos de embedding no gateway
 de chat e 401 da mesma chave no `dashscope-intl`. O `.env.example` lista os 11
 modelos de texto do plano, todos testados em chat e em tool call.

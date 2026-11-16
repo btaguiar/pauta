@@ -161,3 +161,137 @@ def test_structured_output_uses_the_measured_method_unless_overridden() -> None:
     bound = bound_chain.first
     assert isinstance(bound, RunnableBinding)
     assert bound.kwargs.get("tool_choice") is not None
+
+
+def test_google_auth_needs_no_chat_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Com `CHAT_AUTH=google` não há chave: o token sai das credenciais padrão."""
+    import pauta.models as module
+
+    monkeypatch.delenv("CHAT_API_KEY", raising=False)
+    monkeypatch.setenv("CHAT_AUTH", "google")
+    monkeypatch.setenv("CHAT_BASE_URL", "https://vertex.exemplo/openapi")
+    real_auth = module.GoogleBearerAuth
+    monkeypatch.setattr(module, "GoogleBearerAuth", lambda: real_auth(_FakeCredentials()))
+    from pauta.config import get_settings
+
+    get_settings.cache_clear()
+    reset_model_cache()
+    model = get_model("writer")
+    assert model.openai_api_base == "https://vertex.exemplo/openapi"
+    assert model.http_client is not None and model.http_async_client is not None
+
+
+class _FakeCredentials:
+    def __init__(self) -> None:
+        self.valid = False
+        self.token: str | None = None
+        self.refreshes = 0
+
+    def refresh(self, _request: object) -> None:
+        self.refreshes += 1
+        self.token = f"token-{self.refreshes}"
+        self.valid = True
+
+
+def test_google_bearer_refreshes_only_when_the_token_expires() -> None:
+    import httpx
+
+    from pauta.models import GoogleBearerAuth
+
+    credentials = _FakeCredentials()
+    auth = GoogleBearerAuth(credentials)
+
+    def bearer() -> str:
+        request = httpx.Request("POST", "https://vertex.exemplo/chat/completions")
+        return next(auth.auth_flow(request)).headers["Authorization"]
+
+    assert bearer() == "Bearer token-1"
+    assert bearer() == "Bearer token-1", "token válido não é renovado"
+    credentials.valid = False
+    assert bearer() == "Bearer token-2"
+    assert credentials.refreshes == 2
+
+
+def test_tool_call_extra_content_survives_the_round_trip() -> None:
+    """O Gemini recusa o turno seguinte (400) se o `thought_signature` de cada
+    tool call não voltar. O `ChatOpenAI` o descarta; o `GatewayChatModel` guarda
+    por id e reinjeta no payload (ADR 014)."""
+    from langchain_core.messages import HumanMessage, ToolMessage
+    from pydantic import SecretStr
+
+    from pauta.models import TOOL_CALL_EXTRA_KEY, GatewayChatModel
+
+    model = GatewayChatModel(model="m", api_key=SecretStr("k"))
+    signature = {"google": {"thought_signature": "assinatura-opaca"}}
+    response = {
+        "id": "r1",
+        "object": "chat.completion",
+        "created": 0,
+        "model": "m",
+        "choices": [
+            {
+                "index": 0,
+                "finish_reason": "tool_calls",
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call-1",
+                            "type": "function",
+                            "function": {"name": "calc", "arguments": '{"expr": "17*23"}'},
+                            "extra_content": signature,
+                        }
+                    ],
+                },
+            }
+        ],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+    }
+    ai = model._create_chat_result(response).generations[0].message
+    assert ai.additional_kwargs[TOOL_CALL_EXTRA_KEY] == {"call-1": signature}
+
+    history = [HumanMessage("quanto é 17*23?"), ai, ToolMessage("391", tool_call_id="call-1")]
+    payload = model._get_request_payload(history)
+    sent = [m for m in payload["messages"] if m.get("tool_calls")]
+    assert sent[0]["tool_calls"][0]["extra_content"] == signature
+    assert TOOL_CALL_EXTRA_KEY not in sent[0], "a chave interna não vai para a API"
+
+
+def test_a_response_without_extra_content_is_untouched() -> None:
+    from pydantic import SecretStr
+
+    from pauta.models import TOOL_CALL_EXTRA_KEY, GatewayChatModel
+
+    model = GatewayChatModel(model="m", api_key=SecretStr("k"))
+    response = {
+        "id": "r2",
+        "object": "chat.completion",
+        "created": 0,
+        "model": "m",
+        "choices": [
+            {"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": "oi"}}
+        ],
+    }
+    ai = model._create_chat_result(response).generations[0].message
+    assert TOOL_CALL_EXTRA_KEY not in ai.additional_kwargs
+
+
+def test_each_call_has_a_timeout_and_the_supervisor_a_shorter_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sem teto por chamada, uma chamada presa no provider espera até o nó morrer."""
+    monkeypatch.setenv("CHAT_API_KEY", "chave-fake")
+    monkeypatch.setenv("CHAT_AUTH", "api_key")
+    monkeypatch.setenv("MODEL_REQUEST_TIMEOUT_S", "150")
+    monkeypatch.setenv("MODEL_REQUEST_TIMEOUT_SUPERVISOR_S", "30")
+    monkeypatch.setenv("MODEL_MAX_RETRIES", "2")
+    from pauta.config import get_settings
+
+    get_settings.cache_clear()
+    reset_model_cache()
+    supervisor = get_model("supervisor")
+    writer = get_model("writer")
+    assert supervisor.request_timeout == 30
+    assert writer.request_timeout == 150
+    assert supervisor.max_retries == 2 and writer.max_retries == 2

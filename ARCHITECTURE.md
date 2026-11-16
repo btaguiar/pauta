@@ -197,6 +197,96 @@ LLM vem de `get_model(role)`. A degradação em falha de busca continua vindo do
 `run_tools`, que emite evento `error` e devolve `ToolMessage` de erro. A tool
 não captura exceção, de propósito: tratar dentro dela esconderia a falha.
 
+### ADR 014: chat no Gemini 4 pelo Vertex AI
+
+*2026-11-14. Substitui a parte de chat da ADR 010 (Model Studio da Alibaba) e os
+tiers provisórios da ADR 011. O embedding segue no OpenRouter.*
+
+**Contexto.** A matriz no gateway da Alibaba nunca deu número válido: no piloto de
+2026-09-26, só 11 de 25 runs terminaram. Os modelos dela eram de setembro. Por
+decisão do usuário, o executor passa para a família Gemini 4, com os créditos do GCP.
+
+**Decisão.**
+- **Gateway:** o endpoint do Vertex compatível com o protocolo da OpenAI, na região
+  `global` (na `us-central1` os modelos dão 404). O `ChatOpenAI` continua, então
+  saída estruturada, tool calling e contagem de tokens seguem o mesmo caminho.
+- **Autenticação:** `CHAT_AUTH=google`. O endpoint aceita só token OAuth, que vence
+  em uma hora, e o `api_key` do cliente é fixo. O `GoogleBearerAuth`, um
+  `httpx.Auth`, reescreve o cabeçalho em cada requisição com o token das
+  credenciais padrão do Google e renova esse token quando ele vence, com lock. Não
+  há chave no `.env`. Com `CHAT_AUTH=api_key`, o gateway antigo continua funcionando.
+- **`thought_signature`:** o Gemini devolve uma assinatura em
+  `tool_calls[].extra_content` e, se ela não voltar no turno seguinte, recusa o
+  pedido com 400 ("missing a thought_signature"). O `langchain-openai` 1.6.0
+  descarta esse campo. O `GatewayChatModel` guarda o `extra_content` em
+  `additional_kwargs`, pelo id da call, e o devolve no payload. Medido em
+  2026-11-14: sem isso, o research e o analyst quebram na segunda volta de tool.
+- **Modelos (provisórios, não medidos):** supervisor e crítico no
+  `google/gemini-4-argon`; research, analyst e writer no `google/gemini-4-hydrogen`.
+  É a linha `critico-melhor` da matriz. A matriz passa a comparar Hydrogen, Argon e
+  Carbon, com o supervisor fixo no Argon.
+- **Juiz:** `google/gemini-4-carbon`, por decisão do usuário. A metodologia pedia um
+  provider diferente do executor, e esta escolha não cumpre isso. O Carbon não
+  executa nenhum papel, exceto na linha `tudo-melhor`, mas o viés da mesma casa não
+  está descartado: a calibração do juiz tem de rodar de novo antes de a fidelidade
+  valer.
+
+**Consequências.**
+- Os três modelos raciocinam antes de responder. O raciocínio conta como saída e
+  entra no `total_tokens` que o orçamento soma. Teto baixo de saída devolve texto
+  vazio.
+- O custo sai dos créditos do trial do GCP, que acabam por volta de 2026-12-25.
+  Depois disso, o Vertex cobra cada chamada. O preço da família não está confirmado
+  em fonte oficial, então `COST_PER_MTOK_USD` fica vazio até lá.
+- Os timeouts por nó foram medidos no gateway antigo e ainda não foram remedidos. O
+  timeout que mata a run (ADR 013) continua aberto.
+- Quem clona o repo precisa de um projeto no GCP com o Vertex ativado e de
+  `gcloud auth application-default login`.
+
+### ADR 015: busca na Tavily com o `ddgs` de reserva
+
+**Contexto.** Na primeira rodada do Gemini (2026-11-15), a pesquisa levou de 4 a
+6 minutos por chamada, e duas runs morreram no timeout do nó. A causa foi a
+busca, não o modelo: o `ddgs` respondia "No results found" ou estourava os 20 s.
+Sonda do mesmo dia, 3 buscas em português por motor: `auto` achou em 2 (13 s nas
+lentas), `yahoo` em 2, `yandex` em 1, e `bing`, `brave`, `google`, `mojeek`,
+`wikipedia` e `duckduckgo` em nenhuma. A Tavily achou 5 resultados nas 3, entre
+1,2 s e 2 s.
+
+**Decisão.** `SEARCH_PROVIDER` ganha `tavily_ddgs`: a Tavily primeiro e, se ela
+falhar por qualquer motivo (cota, erro do provider, exceção), o `ddgs` na mesma
+chamada. Se os dois falham, sobe um `WebSearchError` com o motivo de cada um. O
+teto `WEB_SEARCH_TIMEOUT_S` vale para a chamada inteira, reserva incluída. O
+default do código segue `ddgs`, porque não exige chave; o `.env.example` e o
+eval passam a usar `tavily_ddgs`. Complementa a ADR 008, não a substitui.
+
+**Consequência.** A busca depende de novo da cota da Tavily, que foi o que
+derrubou a busca em 2026-09-27; a reserva troca a queda por busca pior, não por
+silêncio. Uma run que caiu na reserva busca em outro provedor, e o artefato ainda
+não registra qual respondeu, o mesmo buraco de comparabilidade da ADR 008. Cada
+busca gasta crédito da Tavily; quantas buscas uma rodada faz ainda não foi medido.
+
+### ADR 016: prazo por chamada ao modelo, com nova tentativa no cliente
+
+**Contexto.** Na segunda rodada do Gemini (2026-11-15), o supervisor estourou o
+teto de 180 s do nó três vezes, sempre com os mesmos ~500 tokens das chamadas
+que voltam em 5 s. O modelo não estava pensando, estava parado: sondas de
+2026-11-16 no Vertex mostraram que de 15% a 35% das chamadas ficam sem resposta,
+com ou sem reuso de conexão (3 de 15 e 2 de 15), e uma ficou presa por mais de
+14 min. O cliente da OpenAI espera até 600 s por leitura, então quem cortava
+a chamada era o teto do nó, que mata a run.
+
+**Decisão.** Cada chamada tem prazo no cliente: `MODEL_REQUEST_TIMEOUT_S` (150 s)
+e `MODEL_REQUEST_TIMEOUT_SUPERVISOR_S` (30 s), com `MODEL_MAX_RETRIES` (2) novas
+tentativas. Se o prazo estoura em todas, o supervisor não pergunta de novo e
+segue a rota determinística (`fallback_route`).
+
+**Consequência.** Numa sonda de 20 chamadas, 18 de 19 travadas se salvaram na
+nova tentativa. A base-barata, repetida em 2026-11-16, fechou 5 de 5 runs; na
+véspera tinham sido 3 de 5. O custo é tempo: uma trava ainda gasta o prazo
+inteiro antes da nova tentativa, e a pesquisa de uma run perdeu 530 s assim.
+Os 150 s vêm da maior chamada de writer medida (101 s), não de medida por papel.
+
 ## APIs do LangGraph que este projeto usa
 
 Verificadas contra `langgraph 1.2.11`, a versão do lock. Se o pin subir, confira de
